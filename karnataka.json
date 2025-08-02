@@ -1,0 +1,156 @@
+[
+  {
+    "Food Item": "Bisi Bele Bath",
+    "Ingredients": ["rice", "lentils", "vegetables", "spices", "ghee"],
+    "approx_calories": 350,
+    "Health Impact": "High in protein and fiber, good for digestion",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Ragi Mudde",
+    "Ingredients": ["ragi flour", "water", "salt"],
+    "approx_calories": 200,
+    "Health Impact": "Rich in calcium and iron, gluten-free",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Mangalore Fish Curry",
+    "Ingredients": ["fish", "coconut", "spices", "tamarind", "onion"],
+    "approx_calories": 280,
+    "Health Impact": "High in omega-3 fatty acids and protein",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Neer Dosa",
+    "Ingredients": ["rice", "coconut", "salt"],
+    "approx_calories": 150,
+    "Health Impact": "Light and easy to digest, low calorie",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Mangalore Chicken Curry",
+    "Ingredients": ["chicken", "coconut", "spices", "onion", "garlic"],
+    "approx_calories": 320,
+    "Health Impact": "High in protein, good for muscle building",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Karnataka Sambar",
+    "Ingredients": ["lentils", "vegetables", "tamarind", "spices", "onion"],
+    "approx_calories": 180,
+    "Health Impact": "Rich in protein and fiber, aids digestion",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Mangalore Prawn Curry",
+    "Ingredients": ["prawns", "coconut", "spices", "onion", "garlic"],
+    "approx_calories": 250,
+    "Health Impact": "High in protein and minerals, low in fat",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Karnataka Vegetable Pulao",
+    "Ingredients": ["rice", "vegetables", "spices", "ghee", "onion"],
+    "approx_calories": 300,
+    "Health Impact": "Balanced meal with carbs and fiber",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Egg Masala Dosa",
+    "Ingredients": ["rice", "lentils", "egg", "spices", "onion"],
+    "approx_calories": 280,
+    "Health Impact": "Protein-rich dosa with egg filling",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Egg Curry",
+    "Ingredients": ["egg", "onion", "tomato", "spices", "coconut"],
+    "approx_calories": 250,
+    "Health Impact": "High protein curry, Karnataka style",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Egg Bhurji",
+    "Ingredients": ["egg", "onion", "tomato", "spices", "oil"],
+    "approx_calories": 220,
+    "Health Impact": "Protein-rich breakfast option",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Egg Rice",
+    "Ingredients": ["rice", "egg", "vegetables", "spices", "oil"],
+    "approx_calories": 260,
+    "Health Impact": "Balanced meal with protein and carbs",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Egg Masala",
+    "Ingredients": ["egg", "spices", "onion", "tomato", "garlic"],
+    "approx_calories": 200,
+    "Health Impact": "Spicy egg preparation, good with bread",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Ragi Mudde",
+    "Ingredients": ["ragi flour", "water", "salt"],
+    "approx_calories": 200,
+    "Health Impact": "Rich in calcium and iron, gluten-free",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Neer Dosa",
+    "Ingredients": ["rice", "coconut", "salt"],
+    "approx_calories": 150,
+    "Health Impact": "Light and easy to digest, low calorie",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Karnataka Sambar",
+    "Ingredients": ["lentils", "vegetables", "tamarind", "spices"],
+    "approx_calories": 180,
+    "Health Impact": "Rich in protein and fiber, aids digestion",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Karnataka Vegetable Pulao",
+    "Ingredients": ["rice", "vegetables", "spices", "ghee"],
+    "approx_calories": 300,
+    "Health Impact": "Balanced meal with carbs and fiber",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Kesari Bath",
+    "Ingredients": ["semolina", "sugar", "ghee", "saffron"],
+    "approx_calories": 280,
+    "Health Impact": "Traditional sweet, energy rich",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Mangalore Fish Curry",
+    "Ingredients": ["fish", "coconut", "spices", "tamarind"],
+    "approx_calories": 280,
+    "Health Impact": "High in omega-3 fatty acids and protein",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Mangalore Chicken Curry",
+    "Ingredients": ["chicken", "coconut", "spices"],
+    "approx_calories": 320,
+    "Health Impact": "High in protein, good for muscle building",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Mangalore Prawn Curry",
+    "Ingredients": ["prawns", "coconut", "spices"],
+    "approx_calories": 250,
+    "Health Impact": "High in protein and minerals, low in fat",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Payasam",
+    "Ingredients": ["rice", "milk", "jaggery", "cardamom"],
+    "approx_calories": 240,
+    "Health Impact": "Traditional dessert, nutritious",
+    "Calorie Level": "medium"
+  }
+]

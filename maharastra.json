@@ -1,0 +1,156 @@
+[
+  {
+    "Food Item": "Vada Pav",
+    "Ingredients": ["potato", "bread", "spices", "oil", "onion"],
+    "approx_calories": 280,
+    "Health Impact": "High in carbs, good for energy",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Misal Pav",
+    "Ingredients": ["sprouts", "bread", "spices", "onion", "tomato"],
+    "approx_calories": 320,
+    "Health Impact": "High in protein and fiber, nutritious",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Puran Poli",
+    "Ingredients": ["wheat flour", "jaggery", "ghee", "cardamom"],
+    "approx_calories": 250,
+    "Health Impact": "Traditional sweet, moderate calories",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Bharli Vangi",
+    "Ingredients": ["brinjal", "peanuts", "spices", "onion", "garlic"],
+    "approx_calories": 180,
+    "Health Impact": "Low calorie, high in fiber",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Poha",
+    "Ingredients": ["flattened rice", "onion", "peanuts", "spices", "curry leaves"],
+    "approx_calories": 200,
+    "Health Impact": "Light breakfast, easy to digest",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Bombay Duck Curry",
+    "Ingredients": ["fish", "spices", "onion", "tomato", "garlic"],
+    "approx_calories": 220,
+    "Health Impact": "High in protein and omega-3",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Sabudana Khichdi",
+    "Ingredients": ["sago pearls", "peanuts", "potato", "spices", "curry leaves"],
+    "approx_calories": 240,
+    "Health Impact": "Good for fasting, light meal",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Maharashtrian Chicken Curry",
+    "Ingredients": ["chicken", "spices", "onion", "tomato", "garlic"],
+    "approx_calories": 300,
+    "Health Impact": "High in protein, good for muscle building",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Egg Bhurji",
+    "Ingredients": ["egg", "onion", "tomato", "spices", "oil"],
+    "approx_calories": 220,
+    "Health Impact": "High in protein, good for breakfast",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Masala Omelette",
+    "Ingredients": ["egg", "onion", "tomato", "green chili", "spices"],
+    "approx_calories": 180,
+    "Health Impact": "Protein-rich breakfast option",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Egg Curry",
+    "Ingredients": ["egg", "onion", "tomato", "spices", "coconut"],
+    "approx_calories": 250,
+    "Health Impact": "High protein curry, good with rice",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Egg Fried Rice",
+    "Ingredients": ["rice", "egg", "vegetables", "spices", "oil"],
+    "approx_calories": 280,
+    "Health Impact": "Balanced meal with protein and carbs",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Egg Biryani",
+    "Ingredients": ["rice", "egg", "spices", "onion", "ghee"],
+    "approx_calories": 320,
+    "Health Impact": "Rich in protein and flavor",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Sabudana Khichdi",
+    "Ingredients": ["sago pearls", "peanuts", "spices", "curry leaves"],
+    "approx_calories": 240,
+    "Health Impact": "Good for fasting, light meal",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Kaju Katli",
+    "Ingredients": ["cashews", "sugar", "ghee", "cardamom"],
+    "approx_calories": 180,
+    "Health Impact": "Rich in healthy fats, traditional sweet",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Rava Upma",
+    "Ingredients": ["semolina", "vegetables", "spices", "curry leaves"],
+    "approx_calories": 200,
+    "Health Impact": "Light breakfast, easy to digest",
+    "Calorie Level": "low"
+  },
+  {
+    "Food Item": "Puran Poli",
+    "Ingredients": ["wheat flour", "jaggery", "ghee", "cardamom"],
+    "approx_calories": 250,
+    "Health Impact": "Traditional sweet, moderate calories",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Shrikhand",
+    "Ingredients": ["curd", "sugar", "saffron", "cardamom"],
+    "approx_calories": 220,
+    "Health Impact": "Probiotic dessert, good for digestion",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Modak",
+    "Ingredients": ["rice flour", "coconut", "jaggery", "ghee"],
+    "approx_calories": 200,
+    "Health Impact": "Traditional sweet, coconut benefits",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Basundi",
+    "Ingredients": ["milk", "sugar", "saffron", "nuts"],
+    "approx_calories": 280,
+    "Health Impact": "Rich dessert, calcium source",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Kheer",
+    "Ingredients": ["rice", "milk", "sugar", "cardamom"],
+    "approx_calories": 260,
+    "Health Impact": "Traditional dessert, energy rich",
+    "Calorie Level": "medium"
+  },
+  {
+    "Food Item": "Gulab Jamun",
+    "Ingredients": ["milk powder", "sugar", "ghee", "cardamom"],
+    "approx_calories": 300,
+    "Health Impact": "Popular sweet, festive dessert",
+    "Calorie Level": "high"
+  }
+]       
