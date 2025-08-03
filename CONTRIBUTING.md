@@ -1,160 +1,71 @@
-# Contributing to Nutrio Bot
+# Contributing to Nutriobot
 
-Thank you for your interest in contributing to Nutrio Bot! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to Nutriobot! This document provides guidelines for contributing to the project.
 
-## 🤝 How to Contribute
+## How to Contribute
 
-### Reporting Issues
-- Use the GitHub issue tracker
-- Provide clear, detailed information about the problem
-- Include steps to reproduce the issue
-- Mention your Python version and operating system
+### 1. Fork the Repository
+- Fork the repository to your GitHub account
+- Clone your fork locally
 
-### Suggesting Features
-- Open a feature request issue
-- Describe the feature and its benefits
-- Consider implementation complexity
-- Check if the feature aligns with the project goals
-
-### Code Contributions
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Add tests if applicable
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-## 🛠️ Development Setup
-
-### Prerequisites
-- Python 3.8+
-- Git
-- A Telegram bot token (for testing)
-
-### Local Development
-1. Clone your fork
+### 2. Create a Feature Branch
 ```bash
-git clone https://github.com/your-username/nutrio.git
-cd nutrio
+git checkout -b feature/your-feature-name
 ```
 
-2. Install dependencies
+### 3. Make Your Changes
+- Write clean, well-documented code
+- Follow the existing code style
+- Add comments where necessary
+- Test your changes thoroughly
+
+### 4. Commit Your Changes
 ```bash
-pip install -r requirements.txt
+git add .
+git commit -m "Add: brief description of your changes"
 ```
 
-3. Set up environment
+### 5. Push and Create a Pull Request
 ```bash
-cp env_example.txt .env
-# Edit .env with your bot token
+git push origin feature/your-feature-name
 ```
 
-4. Run the bot
-```bash
-python main.py
-```
+## Code Style Guidelines
 
-## 📝 Code Style Guidelines
-
-### Python Code
-- Follow PEP 8 style guidelines
 - Use meaningful variable and function names
-- Add docstrings for functions and classes
-- Keep functions focused and concise
-- Use type hints where appropriate
+- Add docstrings to functions and classes
+- Follow PEP 8 style guidelines
+- Keep functions small and focused
+- Add error handling where appropriate
 
-### Commit Messages
-- Use clear, descriptive commit messages
-- Start with a verb (Add, Fix, Update, etc.)
-- Keep the first line under 50 characters
-- Add more details in the body if needed
+## Testing
 
-### Pull Request Guidelines
-- Provide a clear description of changes
-- Include any relevant issue numbers
-- Add screenshots for UI changes
-- Ensure all tests pass
-- Update documentation if needed
+Before submitting a pull request:
+- Test your changes locally
+- Ensure the bot responds correctly
+- Check that all features work as expected
+- Verify error handling works properly
 
-## 🧪 Testing
+## Reporting Issues
 
-### Manual Testing
-- Test all bot features thoroughly
-- Test error scenarios and edge cases
-- Verify input validation works correctly
-- Check rate limiting functionality
+When reporting issues:
+- Provide a clear description of the problem
+- Include steps to reproduce the issue
+- Mention your environment (OS, Python version)
+- Include any error messages or logs
 
-### Code Review Checklist
-- [ ] Code follows style guidelines
-- [ ] Functions have proper docstrings
-- [ ] Error handling is implemented
-- [ ] Input validation is in place
-- [ ] No hardcoded secrets
-- [ ] Logging is appropriate
+## Feature Requests
 
-## 🚀 Deployment
+For feature requests:
+- Describe the feature clearly
+- Explain why it would be useful
+- Provide examples if possible
 
-### Before Merging
-- Ensure the bot runs without errors
-- Test with real Telegram bot
-- Verify Firebase integration (if applicable)
-- Check all conversation flows work
+## Questions?
 
-### Security Considerations
-- Never commit sensitive data (tokens, credentials)
-- Use environment variables for configuration
-- Validate all user inputs
-- Implement proper rate limiting
+If you have questions about contributing, feel free to:
+- Open an issue for discussion
+- Ask in the project discussions
+- Contact the maintainers
 
-## 📚 Documentation
-
-### Code Documentation
-- Add docstrings to all functions
-- Include parameter types and return values
-- Provide usage examples where helpful
-- Document complex algorithms
-
-### User Documentation
-- Update README.md for new features
-- Add setup instructions for new dependencies
-- Include troubleshooting steps
-- Provide usage examples
-
-## 🎯 Project Goals
-
-### Current Focus Areas
-- Improving meal recommendation algorithms
-- Adding more regional cuisines
-- Enhancing user experience
-- Optimizing performance
-- Expanding test coverage
-
-### Future Roadmap
-- Multi-language support
-- Advanced nutritional analysis
-- Recipe sharing features
-- Community features
-- Mobile app integration
-
-## 🆘 Getting Help
-
-### Questions and Support
-- Open a GitHub issue for questions
-- Join our community discussions
-- Check existing issues and PRs
-- Review the README and documentation
-
-### Communication
-- Be respectful and inclusive
-- Provide constructive feedback
-- Help other contributors
-- Follow the project's code of conduct
-
-## 📄 License
-
-By contributing to Nutrio Bot, you agree that your contributions will be licensed under the MIT License.
-
----
-
-Thank you for contributing to making Nutrio Bot better! 🍎 
+Thank you for contributing to Nutriobot! 🍎 

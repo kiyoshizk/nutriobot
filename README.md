@@ -1,338 +1,267 @@
-# 🍎 Nutrio - Nutrition Assistant Telegram Bot
+# 🍎 Nutriobot - AI-Powered Nutrition Assistant
 
-A comprehensive nutrition assistant for Indian users in Maharashtra and Karnataka, built with Python Telegram Bot v20+ and Firebase integration.
+A comprehensive Telegram bot that provides personalized meal plans using AI and regional Indian cuisine data. Built with Python, Firebase, and OpenRouter AI integration.
 
-## 🚀 Features
+## 🌟 Features
 
-### 🎯 Core Features
-- **Personalized Meal Planning**: AI-powered meal suggestions based on user preferences
-- **Regional Cuisine**: Karnataka, Maharashtra, and Andhra Pradesh specific meal recommendations
-- **Dietary Preferences**: Support for Vegetarian, Eggitarian, Non-vegetarian, Jain, and Vegan diets
-- **Health Considerations**: Meal filtering based on medical conditions (Diabetes, Thyroid, etc.)
-- **Grocery Shopping**: Smart ingredient lists with cart functionality
-- **External Integration**: Direct links to Blinkit and Zepto for ordering
+### 🤖 AI-Powered Meal Generation
+- **Primary AI Source**: Uses OpenRouter's Mistral 7B model for dynamic meal plans
+- **Age-based Tonality**: Personalized responses based on user age (Gen-Z, calm, respectful)
+- **Regional Focus**: Suggests dishes from user's state/region
+- **Health-conscious**: Only recommends healthy, whole foods
+- **JSON Fallback**: Reliable backup when AI is unavailable
 
-### 🎮 Gamification
-- **Streak System**: Daily engagement tracking with consecutive day bonuses
-- **Points System**: Exponential point rewards for maintaining streaks
-- **Profile Management**: Comprehensive user profiles with statistics
+### 📝 Smart Meal Logging
+- **4-Step Flow**: Followed meals → Skipped meals → Extra items → Points
+- **Firebase Integration**: Stores meal logs with timestamps
+- **Points System**: Random 3-8 points for logging meals
+- **Streak Tracking**: Daily streak maintenance and points calculation
 
-### 🛒 Shopping Features
-- **Smart Cart**: Toggle-based item selection
-- **Ingredient Lists**: Auto-generated from meal plans
-- **Custom Lists**: Add/remove items manually
-- **Order Integration**: Direct links to delivery services
+### 🛒 Dynamic Shopping Cart
+- **Smart Ingredient Extraction**: Automatically extracts ingredients from meal plans
+- **Silent Grocery List**: Adds ingredients to user's grocery list automatically
+- **Zepto Integration**: Direct links to order ingredients online
+- **Cart Management**: Add/remove items, clear lists
 
-## 📋 Prerequisites
+### 🥘 Ingredient-Based Suggestions
+- **Multi-step Flow**: Meal type selection → Ingredient input → AI suggestions
+- **Flexible Input**: Accepts any available ingredients
+- **Healthy Focus**: Only suggests nutritious meals
+- **Regional Adaptation**: Considers user's location and preferences
 
+### 👤 User Profile Management
+- **Comprehensive Profiles**: Name, age, gender, diet, activity, health conditions
+- **Diet Types**: Vegetarian, Non-vegetarian, Jain, Vegan, Mixed
+- **Regional Support**: Maharashtra, Karnataka, Tamil Nadu, Andhra Pradesh, Kerala, Punjab, Bengal, Gujarat, Rajasthan
+- **Health Considerations**: Diabetes, heart health, weight management
+
+## 🚀 Quick Start
+
+### Prerequisites
 - Python 3.8+
-- Telegram Bot Token (from @BotFather)
-- Firebase Project (optional, for data persistence)
+- Telegram Bot Token
+- OpenRouter API Key
+- Firebase Project (optional)
 
-## 🛠️ Installation
+### Installation
 
-### 1. Clone the Repository
-```bash
-git clone <repository-url>
-cd nutrio
-```
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/nutriobot.git
+   cd nutriobot
+   ```
 
-### 2. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### 3. Environment Setup
-```bash
-# Create .env file manually
-touch .env
+3. **Set up environment variables**
+   ```bash
+   cp env.example .env
+   ```
+   
+   Edit `.env` with your credentials:
+   ```env
+   BOT_TOKEN=your_telegram_bot_token
+   OPENROUTER_API_KEY=your_openrouter_api_key
+   FIREBASE_CREDENTIALS_PATH=firebase-credentials.json
+   ```
 
-# Edit .env file with your configuration
-nano .env
-```
+4. **Set up Firebase (optional)**
+   - Download your Firebase service account key
+   - Save as `firebase-credentials.json` in the project root
+   - Or set `FIREBASE_CREDENTIALS_JSON` in environment variables
 
-### 4. Configure Environment Variables
-```env
-# Required
-BOT_TOKEN=your_telegram_bot_token_here
-
-# Optional (for Firebase)
-FIREBASE_CREDENTIALS_PATH=firebase-credentials.json
-```
-
-### 5. Get Telegram Bot Token
-1. Message @BotFather on Telegram
-2. Send `/newbot` or use existing bot
-3. Copy the token and add to `.env` file
-
-### 6. Firebase Setup (Optional)
-1. Create a Firebase project
-2. Download service account key
-3. Save as `firebase-credentials.json` (add to .gitignore)
-4. Update `FIREBASE_CREDENTIALS_PATH` in `.env`
-
-## 🚀 Running the Bot
-
-### Development Mode
-```bash
-python main.py
-```
-
-### Production Mode
-```bash
-# Use a process manager like PM2 or systemd
-python main.py
-```
+5. **Run the bot**
+   ```bash
+   python main.py
+   ```
 
 ## 📁 Project Structure
 
 ```
-nutrio/
-├── main.py                 # Main bot application
+nutriobot/
+├── main.py                 # Main bot logic and handlers
+├── ai_meal_generator.py    # AI integration and prompt management
 ├── requirements.txt        # Python dependencies
-├── .env                   # Environment variables (create manually)
-├── karnataka.json         # Karnataka meal data
-├── maharastra.json        # Maharashtra meal data
-├── andhra_dishes.json     # Andhra Pradesh meal data
-├── Procfile               # Railway deployment configuration
-├── .gitignore             # Git ignore rules
-├── LICENSE                # MIT License
+├── .env.example           # Environment variables template
 ├── README.md              # This file
-├── CHANGELOG.md           # Version history
-├── CODE_OF_CONDUCT.md     # Community guidelines
-└── CONTRIBUTING.md        # Contribution guidelines
+├── LICENSE                # MIT License
+├── .gitignore             # Git ignore rules
+├── firebase-credentials.json  # Firebase credentials (not in repo)
+├── andhra_dishes.json     # Regional meal data
+├── karnataka.json         # Regional meal data
+├── maharastra.json        # Regional meal data
+└── docs/                  # Additional documentation
+    ├── API.md             # API documentation
+    ├── DEPLOYMENT.md      # Deployment guide
+    └── CONTRIBUTING.md    # Contributing guidelines
 ```
-
-## 🎯 Usage
-
-### Starting the Bot
-1. Send `/start` to your bot
-2. Follow the profile creation flow (7 steps)
-3. Get personalized meal recommendations
-
-### Available Commands
-- `/start` - Start the bot and create profile
-- `/cancel` - Cancel current operation
-
-### Main Features
-- **Daily Meal Plans**: Get personalized daily meal suggestions
-- **Weekly Plans**: View 7-day meal plans
-- **Grocery Lists**: Generate shopping lists from meal plans
-- **Cart Management**: Add/remove items and order online
-- **Profile Management**: View and update your preferences
-- **Streak Tracking**: Monitor your daily engagement
 
 ## 🔧 Configuration
 
-### Rate Limiting
-- **Window**: 60 seconds
-- **Max Requests**: 30 per window
-- **Purpose**: Prevent abuse and ensure smooth operation
+### Environment Variables
+- `BOT_TOKEN`: Your Telegram bot token from @BotFather
+- `OPENROUTER_API_KEY`: API key from OpenRouter for AI access
+- `FIREBASE_CREDENTIALS_PATH`: Path to Firebase credentials file
+- `FIREBASE_CREDENTIALS_JSON`: Firebase credentials as JSON string
 
-### Data Storage
-- **Primary**: In-memory storage (fast access)
-- **Backup**: Firebase Firestore (persistent)
-- **Fallback**: Local JSON files for meal data
+### Regional Data Files
+The bot includes JSON files with regional Indian cuisine data:
+- `maharastra.json`: Maharashtra dishes
+- `karnataka.json`: Karnataka dishes  
+- `andhra_dishes.json`: Andhra Pradesh dishes
 
-### Meal Data Format
-```json
-{
-  "Food Item": "Dish Name",
-  "Ingredients": ["ingredient1", "ingredient2"],
-  "approx_calories": 250,
-  "Health Impact": "Nutritional benefits",
-  "Calorie Level": "low|medium|high"
-}
-```
+## 🤖 Bot Commands
 
-## 🛡️ Security Features
+- `/start` - Start the bot and create profile
+- `/logmeal` - Log today's meals (4-step process)
+- `/help` - Show help information
 
-### Input Validation
-- **Name**: Alphanumeric + spaces, 2-50 characters
-- **Age**: Numeric, 1-120 range
-- **Medical**: Sanitized text, 3-200 characters
+## 🎯 Key Features Explained
 
-### Rate Limiting
-- Per-user request tracking
-- Automatic window reset
-- Graceful rate limit handling
+### AI Meal Generation
+The bot uses OpenRouter's Mistral 7B model to generate personalized meal plans:
 
-### Data Protection
-- Environment variable configuration
-- Input sanitization
-- Error handling without data exposure
-
-## 🔄 Error Handling
-
-### Graceful Degradation
-- **Missing JSON Files**: Fallback meal data
-- **Firebase Unavailable**: Memory-only mode
-- **Invalid Input**: Clear error messages with retry options
-
-### Logging
-- **Level**: INFO and above
-- **Format**: Timestamp, logger, level, message
-- **Purpose**: Debugging and monitoring
-
-## 🚨 Troubleshooting
-
-### Common Issues
-
-#### Bot Token Error
-```
-❌ ERROR: BOT_TOKEN environment variable not set!
-```
-**Solution**: Add your bot token to the `.env` file
-
-#### Missing Dependencies
-```
-Import "telegram" could not be resolved
-```
-**Solution**: Run `pip install -r requirements.txt`
-
-#### Firebase Connection Failed
-```
-❌ Firebase connection failed
-```
-**Solution**: Check credentials file path and format
-
-#### Rate Limit Exceeded
-```
-⚠️ Rate Limit Exceeded
-```
-**Solution**: Wait 60 seconds before making more requests
-
-### Debug Mode
-Enable debug logging by modifying the logging level in `main.py`:
 ```python
-logging.basicConfig(level=logging.DEBUG)
+# Example AI prompt structure
+Create a vegetarian Indian meal plan for Priya (25 years, Female, Maharashtra, Moderate activity)
+
+Health Focus:
+- ONLY healthy, whole foods
+- NO pav, bread, fried items, sweets, or processed foods
+- Consider: None
+
+Format (PLAIN TEXT, under 300 words, EXACT STRUCTURE):
+Priya's Daily Meal Plan
+
+🌅 BREAKFAST (7-9 AM)
+[Meal name] - [Calories]
+
+☀️ LUNCH (12-2 PM)  
+[Meal name] - [Calories]
+
+🌙 DINNER (7-9 PM)
+[Meal name] - [Calories]
+
+🍎 SNACK (3-4 PM)
+[Snack name] - [Calories]
 ```
 
-## 📊 Performance
+### Meal Logging System
+Users can log their daily meals through a 4-step process:
 
-### Memory Usage
-- **Per User**: ~2KB (profile + cart + streak data)
-- **Total**: Scales with active users
-- **Optimization**: Automatic cleanup of inactive sessions
+1. **Step 1**: Select which suggested meals they followed
+2. **Step 2**: Select which meals they skipped  
+3. **Step 3**: Add any extra items they ate
+4. **Step 4**: Get points and save to Firebase
 
-### Response Time
-- **Typical**: <500ms for most operations
-- **Meal Generation**: <1s with JSON data
-- **Firebase Operations**: <2s (when available)
+### Dynamic Shopping Cart
+The bot automatically extracts ingredients from meal plans and adds them to the user's grocery list:
 
-## 🔮 Future Enhancements
+```python
+# Ingredient extraction from AI responses
+meal_patterns = [
+    r'🌅\s*(.*?)\s*-\s*\d+',  # Breakfast pattern
+    r'☀️\s*(.*?)\s*-\s*\d+',  # Lunch pattern  
+    r'🌙\s*(.*?)\s*-\s*\d+',  # Dinner pattern
+    r'🍎\s*(.*?)\s*-\s*\d+',  # Snack pattern
+]
+```
 
-### Planned Features
-- [ ] Multi-language support
-- [ ] More regional cuisines
-- [ ] Nutritional analysis
-- [ ] Recipe sharing
-- [ ] Community features
-- [ ] Advanced analytics
+## 🔒 Security & Privacy
 
-### Technical Improvements
-- [ ] Database optimization
-- [ ] Caching layer
-- [ ] API rate limiting
-- [ ] Webhook support
-- [ ] Docker deployment
+- **No Data Storage**: User data is stored in Firebase (secure cloud database)
+- **API Key Protection**: All API keys are stored in environment variables
+- **Input Validation**: All user inputs are sanitized and validated
+- **Rate Limiting**: Built-in rate limiting to prevent abuse
+
+## 🚀 Deployment
+
+### Local Development
+```bash
+python main.py
+```
+
+### Production Deployment
+1. Set up a VPS or cloud server
+2. Install Python and dependencies
+3. Set environment variables
+4. Use process manager (PM2, systemd)
+5. Set up SSL certificate for webhook (if using webhooks)
+
+
 
 ## 🤝 Contributing
 
+We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
+
+### Development Setup
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
 4. Add tests if applicable
 5. Submit a pull request
 
+## 📊 Performance
+
+- **Response Time**: AI responses typically 3-5 seconds
+- **Uptime**: 99.9% with proper deployment
+- **Scalability**: Handles multiple concurrent users
+- **Memory Usage**: ~50MB per bot instance
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Bot not responding**
+- Check if `BOT_TOKEN` is correct
+- Verify bot is not blocked by users
+- Check server logs for errors
+
+**AI not working**
+- Verify `OPENROUTER_API_KEY` is valid
+- Check API quota and billing
+- Ensure internet connectivity
+
+**Firebase errors**
+- Verify Firebase credentials
+- Check Firebase project permissions
+- Ensure database rules allow read/write
+
+### Debug Mode
+Enable debug logging by setting log level:
+```python
+logging.basicConfig(level=logging.DEBUG)
+```
+
+## 📈 Roadmap
+
+- [ ] Add more regional cuisines
+- [ ] Implement meal plan sharing
+- [ ] Add nutrition tracking
+- [ ] Integrate with fitness apps
+- [ ] Add voice commands
+- [ ] Multi-language support
+
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 Support
-
-For support and questions:
-- Create an issue on GitHub
-- Check the troubleshooting section
-- Review the error logs
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- Python Telegram Bot community
-- Firebase team
-- Indian cuisine experts
-- Beta testers and feedback providers
+- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) - Telegram Bot API wrapper
+- [OpenRouter](https://openrouter.ai/) - AI model access
+- [Firebase](https://firebase.google.com/) - Backend services
+- Regional cuisine data contributors
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/yourusername/nutriobot/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/nutriobot/discussions)
+- **Email**: your-email@example.com
 
 ---
 
-**Made with ❤️ for healthy eating in India** 
-
-# 🚂 Railway Deployment
-
-## 🚀 Quick Deploy to Railway
-
-### 1. Prepare Your Repository
-```bash
-# Make sure your code is pushed to GitHub
-git add .
-git commit -m "Ready for Railway deployment"
-git push origin main
-```
-
-### 2. Deploy to Railway
-1. Go to [Railway.app](https://railway.app)
-2. Click "New Project" → "Deploy from GitHub repo"
-3. Select your repository
-4. Railway will automatically detect the `Procfile`
-
-### 3. Configure Environment Variables
-In Railway dashboard, add these environment variables:
-
-#### Required Variables:
-- **`BOT_TOKEN`**: `7583422696:AAFwYG0JxhYB-nYhYqSaTdeWzCUhs-2CITU`
-
-#### Firebase Variables (for data persistence):
-- **`FIREBASE_CREDENTIALS_JSON`**: Copy the entire content of `firebase-credentials.json` as a single line
-
-### 4. Deploy Configuration
-- **Build Command**: `pip install -r requirements.txt`
-- **Start Command**: `python main.py` (handled by Procfile)
-- **Port**: Railway auto-detects
-
-### 5. Environment Variables Format
-```env
-BOT_TOKEN=7583422696:AAFwYG0JxhYB-nYhYqSaTdeWzCUhs-2CITU
-FIREBASE_CREDENTIALS_JSON={"type":"service_account","project_id":"nutrio-d7e6e",...}
-```
-
-## 🔧 Railway-Specific Files
-
-### Procfile
-```
-worker: python main.py
-```
-
-### Requirements
-- `python-telegram-bot==20.7`
-- `python-dotenv==1.0.0`
-- `firebase-admin==6.2.0`
-- `pathlib2==2.3.7`
-
-## 📊 Monitoring
-- **Logs**: Available in Railway dashboard
-- **Health Check**: Bot responds to `/start` command
-- **Uptime**: Railway provides 99.9% uptime
-
-## 🚨 Troubleshooting Railway Deployment
-
-### Common Issues:
-1. **Build Failed**: Check `requirements.txt` syntax
-2. **Runtime Error**: Verify environment variables
-3. **Bot Not Responding**: Check Railway logs for errors
-4. **Firebase Issues**: Ensure `FIREBASE_CREDENTIALS_JSON` is properly formatted
-
-### Debug Steps:
-1. Check Railway build logs
-2. Verify environment variables in Railway dashboard
-3. Test bot with `/start` command
-4. Check Firebase console for data collection # nutriobot
+**Made with ❤️ for healthy eating and better nutrition!** 
