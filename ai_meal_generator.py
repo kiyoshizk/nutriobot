@@ -250,11 +250,21 @@ async def generate_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> 
         diet = profile.get('diet_type', profile.get('diet', 'vegetarian')).lower()
         state = profile.get('state', 'India')
         
-        # Normalize diet type
+        # Normalize diet type to match CSV values
         if diet in ['veg', 'vegetarian']:
-            diet = 'vegetarian'
+            diet = 'Vegetarian'
         elif diet in ['non-veg', 'non-vegetarian']:
-            diet = 'non-vegetarian'
+            diet = 'Non-Vegetarian'
+        elif diet == 'vegan':
+            diet = 'Vegan'
+        elif diet == 'jain':
+            diet = 'Jain'
+        elif diet == 'eggitarian':
+            diet = 'Eggitarian'
+        elif diet == 'keto':
+            diet = 'Keto'
+        elif diet == 'mixed':
+            diet = 'Mixed'
         
         # Load meals from static database
         if state.lower() == "maharashtra":
