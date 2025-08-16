@@ -395,62 +395,60 @@ async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) 
                 'category': meal.get('Category', 'General')
             })
         
-        # Build AI prompt
-        prompt = f"""You are a nutrition expert creating personalized meal plans. 
+        # Build AI prompt optimized for Mistral 7B
+        prompt = f"""<s>[INST] You are a nutrition expert. Create a personalized daily meal plan for this user.
 
-User Profile:
-- Name: {name}
-- Age: {age}
-- Diet: {diet.title()}
-- Region: {state.title()}
-- Medical: {medical}
-- Activity: {activity}
+USER PROFILE:
+Name: {name}
+Age: {age}
+Diet: {diet.title()}
+Region: {state.title()}
+Medical: {medical}
+Activity: {activity}
 
-Available meals from {state.title()} cuisine ({diet} diet):
+AVAILABLE MEALS ({state.title()} cuisine, {diet} diet):
 {json.dumps(meal_context, indent=2)}
 
-Create a personalized daily meal plan with 4 meals (Breakfast, Lunch, Dinner, Snack) using the available meals above. 
+INSTRUCTIONS:
+1. Select 4 meals from the available list above
+2. Create one meal each for: Breakfast, Lunch, Dinner, Snack
+3. Ensure variety and nutritional balance
+4. Consider the user's profile (age, diet, activity level)
+5. Format exactly as shown below
+6. Calculate total calories
 
-Requirements:
-1. Use only meals from the provided list
-2. Ensure variety and balance
-3. Consider the user's age, diet, and activity level
-4. Format response cleanly without excessive emojis
-5. Include calories for each meal
-6. Make it personal and engaging
+FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
 
-Format the response as:
 **Daily Meal Plan**
 
-**Profile:** [Name]
-**Region:** [State]
-**Diet:** [Diet Type]
-**Medical:** [Medical Condition]
-**Activity:** [Activity Level]
+**Profile:** {name}
+**Region:** {state.title()}
+**Diet:** {diet.title()}
+**Medical:** {medical}
+**Activity:** {activity}
 
 ────────────────────────────────────────
 
 **Breakfast**
-[Meal Name]
-Calories: [Number]
-[Brief description if needed]
+[Select meal name from list]
+Calories: [calories from meal data]
 
 **Lunch**
-[Meal Name]
-Calories: [Number]
+[Select meal name from list]
+Calories: [calories from meal data]
 
 **Dinner**
-[Meal Name]
-Calories: [Number]
+[Select meal name from list]
+Calories: [calories from meal data]
 
 **Snack**
-[Meal Name]
-Calories: [Number]
+[Select meal name from list]
+Calories: [calories from meal data]
 
 ────────────────────────────────────────
-**Total Calories:** [Sum]
+**Total Calories:** [sum of all calories]
 
-*Personalized for your health needs*"""
+*Personalized for your health needs* [/INST]"""
 
         # Call AI API
         async with aiohttp.ClientSession() as session:
@@ -462,7 +460,7 @@ Calories: [Number]
             }
             
             data = {
-                'model': 'openai/gpt-3.5-turbo',
+                'model': 'mistralai/mistral-7b-instruct',
                 'messages': [
                     {'role': 'system', 'content': 'You are a helpful nutrition expert.'},
                     {'role': 'user', 'content': prompt}

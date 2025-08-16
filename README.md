@@ -1,11 +1,12 @@
 # 🤖 **Nutrio Bot - AI-Powered Nutrition Assistant**
 
-A comprehensive, secure, and high-performance Telegram nutrition bot designed for Indian users. Features AI-like meal personalization using curated CSV data, regional cuisine support, and robust Firebase integration.
+A comprehensive, secure, and high-performance Telegram nutrition bot designed for Indian users. Features AI-powered meal personalization using Mistral 7B, regional cuisine support, and robust Firebase integration.
 
 ## 🚀 **Key Features**
 
 ### **🍽️ Smart Meal Generation**
-- **AI-Like Personalization**: Uses CSV data with intelligent filtering and regional preferences
+- **AI-Powered Personalization**: Uses Mistral 7B for intelligent meal planning
+- **Static Database Context**: Uses CSV/JSON data as context for AI generation
 - **Regional Cuisine**: Support for Maharashtra (CSV), Karnataka, and Andhra Pradesh (JSON)
 - **Diet Types**: Vegetarian, Non-vegetarian, Vegan, Jain, Eggitarian, Keto, Mixed
 - **Medical Conditions**: Diabetes, Thyroid, and custom health conditions
@@ -37,7 +38,7 @@ A comprehensive, secure, and high-performance Telegram nutrition bot designed fo
 
 ### **Core Components**
 - **Main Bot Logic**: `main.py` - Handles all Telegram interactions
-- **AI Meal Generator**: `ai_meal_generator.py` - CSV-based intelligent meal selection
+- **AI Meal Generator**: `ai_meal_generator.py` - Mistral 7B-powered meal generation
 - **Data Sources**: CSV files for Maharashtra, JSON for regional cuisines
 - **Firebase Integration**: User profiles, meal logs, ratings, and analytics
 
