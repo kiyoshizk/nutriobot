@@ -326,34 +326,263 @@ def get_regional_foods(state: str) -> List[str]:
     
     return regional_foods.get(state.lower(), ['Healthy Indian Food'])
 
-def generate_ingredient_based_meal_plan(ingredients: List[str], diet_type: str, state: str) -> str:
-    """Generate ingredient-based meal plan - static version."""
+async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredients: str, user_id: int, db=None, meal_type: str = "meal") -> str:
+    """Generate ingredient-based meal plan - BEAST MODE with AI fallback."""
+    try:
+        # Parse ingredients
+        ingredient_list = [ing.strip().lower() for ing in ingredients.split(',') if ing.strip()]
+        logger.info(f"Processing ingredients: {ingredient_list}")
+        
+        # Get user preferences
+        diet_type = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+        state = user_data.get('state', 'maharashtra').lower()
+        name = user_data.get('name', 'User')
+        
+        # Normalize diet type
+        diet_mapping = {
+            'veg': 'Vegetarian',
+            'vegetarian': 'Vegetarian',
+            'non-veg': 'Non-Vegetarian',
+            'non-vegetarian': 'Non-Vegetarian',
+            'vegan': 'Vegan',
+            'jain': 'Jain',
+            'eggitarian': 'Eggitarian',
+            'keto': 'Keto',
+            'mixed': 'Mixed'
+        }
+        csv_diet_type = diet_mapping.get(diet_type, 'Vegetarian')
+        
+        # 🔥 STEP 1: Search ALL static files for perfect matches
+        all_meals = []
+        
+        # Load from CSV (Maharashtra)
+        csv_meals = load_meal_data_from_csv(diet_type=csv_diet_type, max_meals=100)
+        all_meals.extend(csv_meals)
+        
+        # Load from JSON files (other states)
+        json_meals = load_meal_data_from_json(state)
+        if json_meals:
+            all_meals.extend(json_meals)
+        
+        # Also load from other states for variety
+        other_states = ['karnataka', 'andhra'] if state not in ['karnataka', 'andhra'] else []
+        for other_state in other_states:
+            other_meals = load_meal_data_from_json(other_state)
+            if other_meals:
+                all_meals.extend(other_meals)
+        
+        logger.info(f"Loaded {len(all_meals)} total meals from all sources")
+        
+        # 🔥 STEP 2: Advanced ingredient matching with scoring
+        matching_meals = []
+        
+        for meal in all_meals:
+            score = 0
+            meal_ingredients = []
+            
+            # Extract ingredients from meal
+            if 'Ingredients' in meal:
+                meal_ingredients = [ing.strip().lower() for ing in meal['Ingredients']]
+            elif 'ingredients' in meal:
+                meal_ingredients = [ing.strip().lower() for ing in meal['ingredients']]
+            
+            # Calculate match score
+            for user_ingredient in ingredient_list:
+                for meal_ingredient in meal_ingredients:
+                    # Exact match
+                    if user_ingredient == meal_ingredient:
+                        score += 10
+                    # Partial match (contains)
+                    elif user_ingredient in meal_ingredient or meal_ingredient in user_ingredient:
+                        score += 5
+                    # Similar ingredients (common variations)
+                    elif any(similar in meal_ingredient for similar in get_similar_ingredients(user_ingredient)):
+                        score += 3
+            
+            # Bonus for meal type match
+            if meal_type.lower() in meal.get('Category', '').lower():
+                score += 5
+            
+            # Bonus for regional preference
+            if state.lower() in meal.get('Region', '').lower():
+                score += 3
+            
+            if score > 0:
+                matching_meals.append({
+                    'meal': meal,
+                    'score': score,
+                    'matched_ingredients': [ing for ing in ingredient_list if any(ing in meal_ing for meal_ing in meal_ingredients)]
+                })
+        
+        # Sort by score (highest first)
+        matching_meals.sort(key=lambda x: x['score'], reverse=True)
+        
+        # 🔥 STEP 3: Generate response based on matches
+        if matching_meals:
+            # Use top matches
+            top_matches = matching_meals[:3]
+            
+            response = f"**Perfect Meal Matches for Your Ingredients**\n\n"
+            response += f"**Your Ingredients:** {ingredients}\n"
+            response += f"**Meal Type:** {meal_type.title()}\n"
+            response += f"**Diet:** {diet_type.title()}\n\n"
+            response += "─" * 40 + "\n\n"
+            
+            for i, match in enumerate(top_matches, 1):
+                meal = match['meal']
+                score = match['score']
+                matched_ingredients = match['matched_ingredients']
+                
+                meal_name = meal.get('Food Item', meal.get('name', 'Unknown'))
+                calories = meal.get('approx_calories', meal.get('calories', 200))
+                ingredients_text = ', '.join(meal.get('Ingredients', meal.get('ingredients', []))[:5])
+                
+                response += f"**{i}. {meal_name}**\n"
+                response += f"Calories: {calories}\n"
+                response += f"Match Score: {score}/10\n"
+                response += f"Uses: {', '.join(matched_ingredients)}\n"
+                response += f"Ingredients: {ingredients_text}...\n\n"
+            
+            response += "─" * 40 + "\n"
+            response += f"*Found {len(matching_meals)} meals using your ingredients!*"
+            
+            # Save to Firebase if available
+            if db:
+                await save_meal_to_firebase(user_id, response, db)
+            
+            return response
+        
+        # 🔥 STEP 4: AI Generation if no matches found
+        else:
+            logger.info("No static matches found, using AI generation")
+            
+            if not AI_AVAILABLE:
+                return generate_fallback_ingredient_response(ingredients, diet_type, state)
+            
+            # Prepare context for AI
+            context_meals = []
+            for meal in all_meals[:20]:  # Use top 20 meals as context
+                context_meals.append({
+                    'name': meal.get('Food Item', meal.get('name', 'Unknown')),
+                    'calories': meal.get('approx_calories', meal.get('calories', 200)),
+                    'ingredients': meal.get('Ingredients', meal.get('ingredients', [])),
+                    'category': meal.get('Category', 'General')
+                })
+            
+            # Build AI prompt for realistic meal generation
+            prompt = f"""<s>[INST] You are a nutrition expert. Create a realistic meal using these ingredients.
+
+USER INGREDIENTS: {ingredients}
+MEAL TYPE: {meal_type}
+DIET: {diet_type.title()}
+REGION: {state.title()}
+
+AVAILABLE MEAL EXAMPLES (for reference):
+{json.dumps(context_meals[:10], indent=2)}
+
+INSTRUCTIONS:
+1. Create a realistic meal using ONLY the provided ingredients
+2. Make it a proper {meal_type} that actually exists in {state.title()} cuisine
+3. Use realistic cooking methods and combinations
+4. Don't create fantasy dishes - stick to real Indian cuisine
+5. If ingredients are insufficient, suggest what to add
+
+FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
+
+**Meal Created from Your Ingredients**
+
+**Ingredients Used:** [list the ingredients you used]
+**Missing Ingredients:** [what you'd need to add for a complete meal]
+
+**Recipe:**
+[Step-by-step cooking instructions using only the provided ingredients]
+
+**Nutritional Info:**
+Calories: [estimated]
+Protein: [estimated]
+Carbs: [estimated]
+
+**Tips:**
+[Suggestions for improvement or variations]
+
+*Created specifically for your available ingredients* [/INST]"""
+
+            # Call AI API
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    'Authorization': f'Bearer {OPENROUTER_API_KEY}',
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': 'https://nutriobot.com',
+                    'X-Title': 'NutrioBot'
+                }
+                
+                data = {
+                    'model': 'mistralai/mistral-7b-instruct',
+                    'messages': [
+                        {'role': 'system', 'content': 'You are a helpful nutrition expert specializing in Indian cuisine.'},
+                        {'role': 'user', 'content': prompt}
+                    ],
+                    'max_tokens': 800,
+                    'temperature': 0.7
+                }
+                
+                async with session.post('https://openrouter.ai/api/v1/chat/completions', 
+                                      headers=headers, json=data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        ai_response = result['choices'][0]['message']['content']
+                        
+                        # Save to Firebase if available
+                        if db:
+                            await save_meal_to_firebase(user_id, ai_response, db)
+                        
+                        return ai_response
+                    else:
+                        logger.error(f"AI API error: {response.status}")
+                        return generate_fallback_ingredient_response(ingredients, diet_type, state)
+        
+    except Exception as e:
+        logger.error(f"Error in ingredient-based meal generation: {e}")
+        return generate_fallback_ingredient_response(ingredients, diet_type, state)
+
+def get_similar_ingredients(ingredient: str) -> List[str]:
+    """Get similar ingredient variations."""
+    similar_map = {
+        'rice': ['basmati', 'brown rice', 'white rice', 'steamed rice'],
+        'dal': ['lentils', 'toor dal', 'moong dal', 'masoor dal', 'urad dal'],
+        'tomato': ['tomatoes', 'tomato puree', 'tomato paste'],
+        'onion': ['onions', 'red onion', 'white onion'],
+        'potato': ['potatoes', 'aloo', 'baby potatoes'],
+        'egg': ['eggs', 'boiled egg', 'fried egg'],
+        'milk': ['dairy milk', 'cow milk', 'buffalo milk'],
+        'flour': ['wheat flour', 'atta', 'maida', 'all purpose flour'],
+        'oil': ['cooking oil', 'vegetable oil', 'ghee', 'butter'],
+        'spices': ['salt', 'pepper', 'turmeric', 'cumin', 'coriander', 'garam masala'],
+        'vegetables': ['carrot', 'beans', 'peas', 'cabbage', 'cauliflower']
+    }
     
-    # Load meals from database
-    meals = load_meal_data_from_csv(diet_type=diet_type, max_meals=50)
-    
-    # Simple ingredient matching
-    matching_meals = []
-    for meal in meals:
-        meal_ingredients = [ing.lower() for ing in meal.get('ingredients', [])]
-        for ingredient in ingredients:
-            if ingredient.lower() in ' '.join(meal_ingredients):
-                matching_meals.append(meal)
-                break
-    
-    if not matching_meals:
-        matching_meals = meals[:4]  # Fallback to first 4 meals
-    
-    # Format response
-    response = f"🍽️ **Meal Suggestions for your ingredients:**\n\n"
-    
-    for i, meal in enumerate(matching_meals[:4], 1):
-        response += f"{i}. **{meal['name']}** - {meal['calories']} calories\n"
-        response += f"   Ingredients: {', '.join(meal['ingredients'][:3])}...\n\n"
-    
-    response += f"💡 Based on your {diet_type} preferences and {state} cuisine!"
-    
-    return response
+    for key, variations in similar_map.items():
+        if ingredient in key or key in ingredient:
+            return variations
+    return [ingredient]
+
+def generate_fallback_ingredient_response(ingredients: str, diet_type: str, state: str) -> str:
+    """Generate fallback response when no matches found."""
+    return f"""**No Perfect Matches Found**
+
+**Your Ingredients:** {ingredients}
+
+**Suggestions:**
+1. **Add more ingredients** - Try adding common items like rice, dal, spices
+2. **Use regular meal plan** - Get complete meal suggestions
+3. **Try different ingredients** - Use more basic ingredients
+
+**Common additions for {diet_type} {state.title()} cuisine:**
+- Rice, dal, vegetables, spices
+- Onions, tomatoes, potatoes
+- Oil, salt, turmeric, cumin
+
+*Try our regular meal plan feature for complete meal suggestions!*"""
 
 # Legacy function names for compatibility
 async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> Optional[str]:

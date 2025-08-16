@@ -1440,7 +1440,7 @@ async def handle_ingredients_input(update: Update, context: ContextTypes.DEFAULT
     
     # Show loading message
     loading_message = await update.message.reply_text(
-        f"🤖 AI is crafting your {meal_type} using your ingredients...\n\n"
+        f"🔍 Searching through our meal database for perfect matches...\n\n"
         f"Using ingredients: {ingredients}\n"
         "This will take a few seconds. Please wait! ⏳"
         )
@@ -1449,7 +1449,7 @@ async def handle_ingredients_input(update: Update, context: ContextTypes.DEFAULT
         # Import the ingredient-based meal generation function
         from ai_meal_generator import generate_ingredient_based_meal_plan
 
-        # Generate ingredient-based meal plan with specific meal type
+        # Generate ingredient-based meal plan with specific meal type (BEAST MODE)
         ai_meal_plan = await generate_ingredient_based_meal_plan(user_data, ingredients, user_id, db, meal_type)
         
         if ai_meal_plan:
