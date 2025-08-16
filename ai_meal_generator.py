@@ -433,8 +433,20 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
         
         # 🔥 STEP 3: Generate response based on matches
         if matching_meals:
-            # Use top matches
-            top_matches = matching_meals[:3]
+            # Remove duplicates based on meal name
+            seen_meals = set()
+            unique_matches = []
+            
+            for match in matching_meals:
+                meal_name = match['meal'].get('Food Item', match['meal'].get('name', 'Unknown')).strip()
+                # Normalize meal name for better deduplication
+                normalized_name = meal_name.lower().replace(' ', '').replace('-', '').replace('+', '')
+                if normalized_name not in seen_meals:
+                    seen_meals.add(normalized_name)
+                    unique_matches.append(match)
+            
+            # Use top unique matches
+            top_matches = unique_matches[:3]
             
             response = f"Perfect {meal_type.title()} Matches for Your Ingredients\n\n"
             response += f"Your Ingredients: {ingredients}\n"
@@ -491,8 +503,20 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
                         break
             
             if partial_matches:
-                # Use partial matches
-                top_partial = partial_matches[:3]
+                # Remove duplicates from partial matches
+                seen_partial = set()
+                unique_partial = []
+                
+                for match in partial_matches:
+                    meal_name = match['meal'].get('Food Item', match['meal'].get('name', 'Unknown')).strip()
+                    # Normalize meal name for better deduplication
+                    normalized_name = meal_name.lower().replace(' ', '').replace('-', '').replace('+', '')
+                    if normalized_name not in seen_partial:
+                        seen_partial.add(normalized_name)
+                        unique_partial.append(match)
+                
+                # Use top unique partial matches
+                top_partial = unique_partial[:3]
                 
                 response = f"Partial {meal_type.title()} Matches for Your Ingredients\n\n"
                 response += f"Your Ingredients: {ingredients}\n"
@@ -580,7 +604,8 @@ Tips:
 Created specifically for your available ingredients as a {meal_type} [/INST]"""
 
             # Call AI API
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(ssl=False)  # Disable SSL verification for API calls
+            async with aiohttp.ClientSession(connector=connector) as session:
                 headers = {
                     'Authorization': f'Bearer {OPENROUTER_API_KEY}',
                     'Content-Type': 'application/json',
