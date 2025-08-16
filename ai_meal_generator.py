@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Static Meal Selector
-No AI - just pulls meals from static database
+AI-Powered Meal Generator
+Uses AI to generate personalized meal plans from static database
 """
 
 import logging
 import csv
 import json
+import asyncio
+import aiohttp
+import os
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -27,6 +30,10 @@ ALLOWED_DIET_TYPES = {
 ALLOWED_MEAL_TYPES = {'breakfast', 'lunch', 'dinner', 'snack', 'morning snack', 'evening snack'}
 MAX_MEALS_PER_REQUEST = 50
 MAX_CACHE_SIZE = 1000
+
+# AI Configuration
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+AI_AVAILABLE = bool(OPENROUTER_API_KEY)
 
 # Cache for performance
 meal_data_cache: Dict[str, List[Dict[str, Any]]] = {}
@@ -350,9 +357,141 @@ def generate_ingredient_based_meal_plan(ingredients: List[str], diet_type: str, 
 
 # Legacy function names for compatibility
 async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> Optional[str]:
-    """Legacy function - now calls static meal generation."""
-    return await generate_meal_plan(profile, user_id, db)
+    """Generate AI-powered meal plan using static database as context."""
+    try:
+        if not AI_AVAILABLE:
+            logger.warning("AI not available, using static meal generation")
+            return await generate_meal_plan(profile, user_id, db)
+        
+        # Extract user data
+        name = profile.get('name', 'User')
+        age = profile.get('age', 25)
+        diet = profile.get('diet_type', profile.get('diet', 'vegetarian')).lower()
+        state = profile.get('state', 'maharashtra').lower()
+        medical = profile.get('medical', 'None')
+        activity = profile.get('activity', 'Sedentary')
+        
+        # Normalize diet type
+        if diet == 'veg':
+            diet = 'vegetarian'
+        elif diet == 'non-veg':
+            diet = 'non-vegetarian'
+        
+        # Load meals from static database for context
+        if state.lower() == "maharashtra":
+            meals = load_meal_data_from_csv(diet_type=diet.title(), max_meals=20)
+        else:
+            meals = load_meal_data_from_json(state)
+            if not meals:
+                meals = load_meal_data_from_csv(diet_type=diet.title(), max_meals=20)
+        
+        # Prepare meal context for AI
+        meal_context = []
+        for meal in meals[:10]:  # Use first 10 meals as context
+            meal_context.append({
+                'name': meal.get('Food Item', meal.get('name', 'Unknown')),
+                'calories': meal.get('approx_calories', 200),
+                'ingredients': meal.get('Ingredients', []),
+                'category': meal.get('Category', 'General')
+            })
+        
+        # Build AI prompt
+        prompt = f"""You are a nutrition expert creating personalized meal plans. 
+
+User Profile:
+- Name: {name}
+- Age: {age}
+- Diet: {diet.title()}
+- Region: {state.title()}
+- Medical: {medical}
+- Activity: {activity}
+
+Available meals from {state.title()} cuisine ({diet} diet):
+{json.dumps(meal_context, indent=2)}
+
+Create a personalized daily meal plan with 4 meals (Breakfast, Lunch, Dinner, Snack) using the available meals above. 
+
+Requirements:
+1. Use only meals from the provided list
+2. Ensure variety and balance
+3. Consider the user's age, diet, and activity level
+4. Format response cleanly without excessive emojis
+5. Include calories for each meal
+6. Make it personal and engaging
+
+Format the response as:
+**Daily Meal Plan**
+
+**Profile:** [Name]
+**Region:** [State]
+**Diet:** [Diet Type]
+**Medical:** [Medical Condition]
+**Activity:** [Activity Level]
+
+────────────────────────────────────────
+
+**Breakfast**
+[Meal Name]
+Calories: [Number]
+[Brief description if needed]
+
+**Lunch**
+[Meal Name]
+Calories: [Number]
+
+**Dinner**
+[Meal Name]
+Calories: [Number]
+
+**Snack**
+[Meal Name]
+Calories: [Number]
+
+────────────────────────────────────────
+**Total Calories:** [Sum]
+
+*Personalized for your health needs*"""
+
+        # Call AI API
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'Authorization': f'Bearer {OPENROUTER_API_KEY}',
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://nutriobot.com',
+                'X-Title': 'NutrioBot'
+            }
+            
+            data = {
+                'model': 'openai/gpt-3.5-turbo',
+                'messages': [
+                    {'role': 'system', 'content': 'You are a helpful nutrition expert.'},
+                    {'role': 'user', 'content': prompt}
+                ],
+                'max_tokens': 1000,
+                'temperature': 0.7
+            }
+            
+            async with session.post('https://openrouter.ai/api/v1/chat/completions', 
+                                  headers=headers, json=data) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    ai_response = result['choices'][0]['message']['content']
+                    
+                    # Save to Firebase if available
+                    if db:
+                        await save_meal_to_firebase(user_id, ai_response, db)
+                    
+                    return ai_response
+                else:
+                    logger.error(f"AI API error: {response.status}")
+                    # Fallback to static generation
+                    return await generate_meal_plan(profile, user_id, db)
+        
+    except Exception as e:
+        logger.error(f"Error in AI meal generation: {e}")
+        # Fallback to static generation
+        return await generate_meal_plan(profile, user_id, db)
 
 async def save_ai_meal_to_firebase(user_id: int, meal_plan: str, db) -> bool:
-    """Legacy function - now calls static save function."""
+    """Save AI-generated meal plan to Firebase."""
     return await save_meal_to_firebase(user_id, meal_plan, db) 

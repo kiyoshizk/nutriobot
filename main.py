@@ -1552,11 +1552,54 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Determine data source based on user's state
         user_state = user_data.get('state', '').lower()
         
-        if user_state == 'maharashtra':
-            # 🔥 MAHARASHTRA: Use CSV data ONLY (no fallback)
-            logger.info(f"User {user_id} from Maharashtra - using CSV data only")
+        # 🔥 AI-POWERED: Generate meal plan using AI with static database context
+        logger.info(f"User {user_id} from {user_state.title()} - using AI with static database")
+        
+        # Generate AI meal plan (using static database as context)
+        ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db)
+        logger.info(f"AI meal plan generated for user {user_id}: {len(ai_meal_plan) if ai_meal_plan else 0} characters")
+        
+        if ai_meal_plan and ai_meal_plan.strip():
+            # Create action buttons for AI meal plan
+            first_meal_name = "AI Generated Meal Plan"
             
-            # Load meals from CSV based on user's diet
+            # Clean meal name for callback data (remove special characters)
+            clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
+            if not clean_meal_name:
+                clean_meal_name = "AI_Generated_Meal"
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}"),
+                    InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")
+                ],
+                [InlineKeyboardButton("Log Today's Meals", callback_data="log_meal")],
+                [
+                    InlineKeyboardButton("Grocery List", callback_data="grocery_list"),
+                    InlineKeyboardButton("Order on Zepto", callback_data="order_zepto")
+                ],
+                [
+                    InlineKeyboardButton("New Plan", callback_data="get_meal_plan"),
+                    InlineKeyboardButton("Go Back", callback_data="go_back")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Cache the suggested meals for logging
+            meal_names = [{'name': 'AI Generated Meal Plan'}]
+            context.user_data["last_suggested_meals"] = meal_names
+            
+            await query.edit_message_text(
+                ai_meal_plan,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            logger.info(f"✅ AI meal plan sent to user {user_id}")
+            return MEAL_PLAN
+        else:
+            logger.warning(f"⚠️ AI meal plan failed for user {user_id}, using fallback")
+            
+            # Fallback to static meal generation
             user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
             
             # Normalize diet type for CSV matching
@@ -1719,126 +1762,8 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-            logger.info(f"✅ CSV meal plan sent to user {user_id} from Maharashtra")
+            logger.info(f"✅ Static meal plan sent to user {user_id} (AI fallback)")
             return MEAL_PLAN
-            
-        else:
-            # 🔄 OTHER STATES: Use AI meal generation (JSON fallback)
-            if MEAL_GENERATOR_AVAILABLE:
-                # Generate AI meal plan (using JSON data)
-                ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db)
-                logger.info(f"AI meal plan generated for user {user_id}: {len(ai_meal_plan) if ai_meal_plan else 0} characters")
-                
-                if ai_meal_plan and ai_meal_plan.strip():
-                    # Create action buttons for AI meal plan with actual meal names
-                    # Get the first meal name for rating
-                    first_meal_name = "AI Generated Meal Plan"
-                    if meal_names and len(meal_names) > 0:
-                        first_meal_name = meal_names[0].get('name', 'AI Generated Meal Plan')
-                    
-                    # Clean meal name for callback data (remove special characters)
-                    clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
-                    if not clean_meal_name:
-                        clean_meal_name = "AI_Generated_Meal"
-                    
-                    keyboard = [
-                        [
-                            InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}"),
-                            InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")
-                        ],
-                        [InlineKeyboardButton("Log Today's Meals", callback_data="log_meal")],
-                        [
-                            InlineKeyboardButton("Grocery List", callback_data="grocery_list"),
-                            InlineKeyboardButton("Order on Zepto", callback_data="order_zepto")
-                        ],
-                        [
-                            InlineKeyboardButton("New Plan", callback_data="get_meal_plan"),
-                            InlineKeyboardButton("Go Back", callback_data="go_back")
-                        ]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    # Cache the suggested meals for logging
-                    # Enhanced meal extraction for AI responses
-                    meal_names = []
-                    
-                    # Extract meal names using improved regex patterns
-                    meal_patterns = [
-                        r'🌅\s*(.*?)\s*-\s*\d+',  # Breakfast pattern
-                        r'☀️\s*(.*?)\s*-\s*\d+',  # Lunch pattern  
-                        r'🌙\s*(.*?)\s*-\s*\d+',  # Dinner pattern
-                        r'🍎\s*(.*?)\s*-\s*\d+',  # Snack pattern
-                        r'🌅\s*(.*?)(?:\n|$)',    # Breakfast without calories
-                        r'☀️\s*(.*?)(?:\n|$)',    # Lunch without calories
-                        r'🌙\s*(.*?)(?:\n|$)',    # Dinner without calories
-                        r'🍎\s*(.*?)(?:\n|$)',    # Snack without calories
-                    ]
-                    
-                    for pattern in meal_patterns:
-                        matches = re.findall(pattern, ai_meal_plan, re.MULTILINE)
-                        for match in matches:
-                            meal_name = match.strip()
-                            if meal_name and len(meal_name) > 2 and len(meal_name) < 50:
-                                # Clean meal name
-                                meal_name = re.sub(r'[^\w\s\-]', '', meal_name).strip()
-                                if meal_name:
-                                    meal_names.append({'name': meal_name})
-                    
-                    # If regex extraction fails, use enhanced line parsing
-                    if not meal_names:
-                        lines = ai_meal_plan.split('\n')
-                        for line in lines:
-                            line = line.strip()
-                            if any(emoji in line for emoji in ['🌅', '☀️', '🌙', '🍎']):
-                                # Remove emoji and extract meal name
-                                for emoji in ['🌅', '☀️', '🌙', '🍎']:
-                                    if emoji in line:
-                                        # Extract text after emoji, before any dash or newline
-                                        parts = line.split(emoji, 1)
-                                        if len(parts) > 1:
-                                            meal_text = parts[1].strip()
-                                            # Remove calories and other info
-                                            if ' - ' in meal_text:
-                                                meal_name = meal_text.split(' - ')[0].strip()
-                                            else:
-                                                meal_name = meal_text.split()[0] if meal_text.split() else ''
-                                            
-                                            # Clean and validate meal name
-                                            if meal_name and len(meal_name) > 2 and len(meal_name) < 50:
-                                                meal_name = re.sub(r'[^\w\s\-]', '', meal_name).strip()
-                                                if meal_name:
-                                                    meal_names.append({'name': meal_name})
-                                        break
-                    
-                    # Final fallback: create default meal names
-                    if not meal_names:
-                        meal_names = [
-                            {'name': 'Breakfast'},
-                            {'name': 'Lunch'},
-                            {'name': 'Dinner'},
-                            {'name': 'Snack'}
-                        ]
-                    
-                    context.user_data["last_suggested_meals"] = meal_names
-                    
-                    await query.edit_message_text(
-                        ai_meal_plan,
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"✅ AI meal plan sent to user {user_id}")
-                    return MEAL_PLAN
-                else:
-                    logger.warning(f"⚠️ AI meal plan failed for user {user_id}")
-                    
-            # If AI fails or not available, show error for non-Maharashtra states
-            await query.edit_message_text(
-                f"❌ Unable to generate meal plan for {user_data['state'].title()}.\n\n"
-                "Please try again later or contact support.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
-                ]])
-            )
-            return ConversationHandler.END
             return ConversationHandler.END
             
     except Exception as e:
