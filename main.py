@@ -1544,7 +1544,7 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     try:
         # Show loading message
         await query.edit_message_text(
-            "**Generating your meal plan...**\n\n"
+            "Generating your meal plan...\n\n"
             "Please wait a moment.",
             parse_mode='Markdown'
         )
@@ -1687,13 +1687,13 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
             
             # Format meal plan message with clean, readable layout
-            meal_message = f"**Daily Meal Plan**\n\n"
-            meal_message += f"**Profile:** {user_data.get('name', 'Your')}\n"
-            meal_message += f"**Region:** {user_data['state'].title()}\n"
-            meal_message += f"**Diet:** {user_data['diet'].title()}\n"
-            meal_message += f"**Medical:** {user_data['medical'].title()}\n"
-            meal_message += f"**Activity:** {user_data['activity'].title()}\n"
-            meal_message += f"**Streak:** {streak_data['streak_count']} days | **Points:** {streak_data['streak_points_total']}"
+            meal_message = f"Daily Meal Plan\n\n"
+            meal_message += f"Profile: {user_data.get('name', 'Your')}\n"
+            meal_message += f"Region: {user_data['state'].title()}\n"
+            meal_message += f"Diet: {user_data['diet'].title()}\n"
+            meal_message += f"Medical: {user_data['medical'].title()}\n"
+            meal_message += f"Activity: {user_data['activity'].title()}\n"
+            meal_message += f"Streak: {streak_data['streak_count']} days | Points: {streak_data['streak_points_total']}"
             if points_earned > 0:
                 meal_message += f" (+{points_earned} today)"
             meal_message += "\n\n"
@@ -1710,7 +1710,7 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 ingredients = meal.get('Ingredients', [])
                 calorie_level = meal.get('Calorie Level', '')
                 
-                meal_message += f"**{meal_type}**\n"
+                meal_message += f"{meal_type}\n"
                 meal_message += f"{meal_name}\n"
                 meal_message += f"Calories: {calories}\n"
                 if calorie_level:
@@ -1726,8 +1726,8 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 meal_names.append({'name': meal_name})
             
             meal_message += "─" * 40 + "\n"
-            meal_message += f"**Total Calories:** {total_calories}\n\n"
-            meal_message += "*Meals personalized for your health needs*"
+            meal_message += f"Total Calories: {total_calories}\n\n"
+            meal_message += "Meals personalized for your health needs"
             
             # Create action buttons with ratings for the first meal
             first_meal_name = meal_names[0].get('name', '') if meal_names else 'Meal Plan'
@@ -1769,7 +1769,7 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     except Exception as e:
         logger.error(f"❌ Error in meal generation: {e}")
         await query.edit_message_text(
-            "❌ **Error generating meal plan**\n\n"
+            "❌ Error generating meal plan\n\n"
             "Something went wrong. Please try again later.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")

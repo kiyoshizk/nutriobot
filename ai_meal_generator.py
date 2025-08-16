@@ -425,11 +425,11 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
             # Use top matches
             top_matches = matching_meals[:3]
             
-            response = f"**Perfect {meal_type.title()} Matches for Your Ingredients**\n\n"
-            response += f"**Your Ingredients:** {ingredients}\n"
-            response += f"**Meal Type:** {meal_type.title()}\n"
-            response += f"**Diet:** {diet_type.title()}\n"
-            response += f"**Region:** {state.title()}\n\n"
+            response = f"Perfect {meal_type.title()} Matches for Your Ingredients\n\n"
+            response += f"Your Ingredients: {ingredients}\n"
+            response += f"Meal Type: {meal_type.title()}\n"
+            response += f"Diet: {diet_type.title()}\n"
+            response += f"Region: {state.title()}\n\n"
             response += "─" * 40 + "\n\n"
             
             for i, match in enumerate(top_matches, 1):
@@ -441,7 +441,7 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
                 calories = meal.get('approx_calories', meal.get('calories', 200))
                 ingredients_text = ', '.join(meal.get('Ingredients', meal.get('ingredients', []))[:5])
                 
-                response += f"**{i}. {meal_name}**\n"
+                response += f"{i}. {meal_name}\n"
                 response += f"Category: {meal.get('Category', 'General')}\n"
                 response += f"Calories: {calories}\n"
                 response += f"Match Score: {score}/10\n"
@@ -494,23 +494,23 @@ INSTRUCTIONS:
 
 FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
 
-**{meal_type.title()} Created from Your Ingredients**
+{meal_type.title()} Created from Your Ingredients
 
-**Ingredients Used:** [list the ingredients you used]
-**Missing Ingredients:** [what you'd need to add for a complete {meal_type}]
+Ingredients Used: [list the ingredients you used]
+Missing Ingredients: [what you'd need to add for a complete {meal_type}]
 
-**Recipe:**
+Recipe:
 [Step-by-step cooking instructions for a {meal_type} using only the provided ingredients]
 
-**Nutritional Info:**
+Nutritional Info:
 Calories: [estimated for {meal_type}]
 Protein: [estimated]
 Carbs: [estimated]
 
-**Tips:**
+Tips:
 [Suggestions for improvement or variations for {meal_type}]
 
-*Created specifically for your available ingredients as a {meal_type}* [/INST]"""
+Created specifically for your available ingredients as a {meal_type} [/INST]"""
 
             # Call AI API
             async with aiohttp.ClientSession() as session:
@@ -583,22 +583,22 @@ def get_similar_ingredients(ingredient: str) -> List[str]:
 
 def generate_fallback_ingredient_response(ingredients: str, diet_type: str, state: str, meal_type: str = "meal") -> str:
     """Generate fallback response when no matches found."""
-    return f"""**No Perfect {meal_type.title()} Matches Found**
+    return f"""No Perfect {meal_type.title()} Matches Found
 
-**Your Ingredients:** {ingredients}
-**Meal Type:** {meal_type.title()}
+Your Ingredients: {ingredients}
+Meal Type: {meal_type.title()}
 
-**Suggestions:**
-1. **Add more ingredients** - Try adding common items like rice, dal, spices
-2. **Use regular meal plan** - Get complete meal suggestions
-3. **Try different ingredients** - Use more basic ingredients
+Suggestions:
+1. Add more ingredients - Try adding common items like rice, dal, spices
+2. Use regular meal plan - Get complete meal suggestions
+3. Try different ingredients - Use more basic ingredients
 
-**Common additions for {meal_type} in {diet_type} {state.title()} cuisine:**
+Common additions for {meal_type} in {diet_type} {state.title()} cuisine:
 - Rice, dal, vegetables, spices
 - Onions, tomatoes, potatoes
 - Oil, salt, turmeric, cumin
 
-*Try our regular meal plan feature for complete meal suggestions!*"""
+Try our regular meal plan feature for complete meal suggestions!"""
 
 # Legacy function names for compatibility
 async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> Optional[str]:
