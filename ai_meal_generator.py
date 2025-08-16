@@ -387,7 +387,13 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
                 meal_ingredients = [ing.strip().lower() for ing in meal['ingredients']]
             
             # Calculate match score
+            meal_name = meal.get('Food Item', meal.get('name', '')).lower()
+            
             for user_ingredient in ingredient_list:
+                # Check meal name first (often contains main ingredients)
+                if user_ingredient in meal_name:
+                    score += 8  # Ingredient in meal name
+                
                 for meal_ingredient in meal_ingredients:
                     # Exact match
                     if user_ingredient == meal_ingredient:
@@ -398,6 +404,11 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
                     # Similar ingredients (common variations)
                     elif any(similar in meal_ingredient for similar in get_similar_ingredients(user_ingredient)):
                         score += 3
+                
+                # Check meal name for similar ingredients too
+                similar_ingredients = get_similar_ingredients(user_ingredient)
+                if any(sim_ing in meal_name for sim_ing in similar_ingredients):
+                    score += 2  # Similar ingredient in meal name
             
             # Major bonus for meal type match (prioritize meal type)
             meal_category = meal.get('Category', '').lower()
@@ -461,6 +472,62 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
         else:
             logger.info("No static matches found, using AI generation")
             
+            # Try to find partial matches even if no perfect matches
+            partial_matches = []
+            for meal in all_meals:
+                meal_ingredients = [ing.lower().strip() for ing in meal.get('Ingredients', meal.get('ingredients', []))]
+                meal_name = meal.get('Food Item', meal.get('name', '')).lower()
+                
+                # Check if any ingredient is mentioned in meal name or ingredients
+                for ingredient in ingredient_list:
+                    if (ingredient in meal_name or 
+                        any(ingredient in ing for ing in meal_ingredients) or
+                        any(ing in ingredient for ing in meal_ingredients)):
+                        partial_matches.append({
+                            'meal': meal,
+                            'score': 5,  # Lower score for partial matches
+                            'matched_ingredients': [ingredient]
+                        })
+                        break
+            
+            if partial_matches:
+                # Use partial matches
+                top_partial = partial_matches[:3]
+                
+                response = f"Partial {meal_type.title()} Matches for Your Ingredients\n\n"
+                response += f"Your Ingredients: {ingredients}\n"
+                response += f"Meal Type: {meal_type.title()}\n"
+                response += f"Diet: {diet_type.title()}\n"
+                response += f"Region: {state.title()}\n\n"
+                response += "─" * 40 + "\n\n"
+                
+                for i, match in enumerate(top_partial, 1):
+                    meal = match['meal']
+                    score = match['score']
+                    matched_ingredients = match['matched_ingredients']
+                    
+                    meal_name = meal.get('Food Item', meal.get('name', 'Unknown'))
+                    calories = meal.get('approx_calories', meal.get('calories', 200))
+                    ingredients_text = ', '.join(meal.get('Ingredients', meal.get('ingredients', []))[:5])
+                    
+                    response += f"{i}. {meal_name}\n"
+                    response += f"Category: {meal.get('Category', 'General')}\n"
+                    response += f"Calories: {calories}\n"
+                    response += f"Match Score: {score}/10 (Partial Match)\n"
+                    response += f"Uses: {', '.join(matched_ingredients)}\n"
+                    response += f"Ingredients: {ingredients_text}...\n\n"
+                
+                response += "─" * 40 + "\n"
+                response += f"Found {len(partial_matches)} partial matches!\n\n"
+                response += "💡 Tip: These meals use some of your ingredients. You may need to add more ingredients for a complete meal."
+                
+                # Save to Firebase if available
+                if db:
+                    await save_meal_to_firebase(user_id, response, db)
+                
+                return response
+            
+            # If no partial matches either, try AI or fallback
             if not AI_AVAILABLE:
                 return generate_fallback_ingredient_response(ingredients, diet_type, state, meal_type)
             
@@ -563,26 +630,51 @@ def get_meal_type_variations(meal_type: str) -> List[str]:
 def get_similar_ingredients(ingredient: str) -> List[str]:
     """Get similar ingredient variations."""
     similar_map = {
-        'rice': ['basmati', 'brown rice', 'white rice', 'steamed rice'],
-        'dal': ['lentils', 'toor dal', 'moong dal', 'masoor dal', 'urad dal'],
-        'tomato': ['tomatoes', 'tomato puree', 'tomato paste'],
-        'onion': ['onions', 'red onion', 'white onion'],
-        'potato': ['potatoes', 'aloo', 'baby potatoes'],
-        'egg': ['eggs', 'boiled egg', 'fried egg'],
-        'milk': ['dairy milk', 'cow milk', 'buffalo milk'],
-        'flour': ['wheat flour', 'atta', 'maida', 'all purpose flour'],
-        'oil': ['cooking oil', 'vegetable oil', 'ghee', 'butter'],
-        'spices': ['salt', 'pepper', 'turmeric', 'cumin', 'coriander', 'garam masala'],
-        'vegetables': ['carrot', 'beans', 'peas', 'cabbage', 'cauliflower']
+        'rice': ['basmati', 'brown rice', 'white rice', 'steamed rice', 'rice'],
+        'dal': ['lentils', 'toor dal', 'moong dal', 'masoor dal', 'urad dal', 'dal'],
+        'tomato': ['tomatoes', 'tomato puree', 'tomato paste', 'tomato'],
+        'onion': ['onions', 'red onion', 'white onion', 'onion'],
+        'potato': ['potatoes', 'aloo', 'baby potatoes', 'potato'],
+        'egg': ['eggs', 'boiled egg', 'fried egg', 'egg'],
+        'milk': ['dairy milk', 'cow milk', 'buffalo milk', 'milk'],
+        'flour': ['wheat flour', 'atta', 'maida', 'all purpose flour', 'flour'],
+        'oil': ['cooking oil', 'vegetable oil', 'ghee', 'butter', 'oil'],
+        'spices': ['salt', 'pepper', 'turmeric', 'cumin', 'coriander', 'garam masala', 'spices'],
+        'vegetables': ['carrot', 'beans', 'peas', 'cabbage', 'cauliflower', 'vegetables'],
+        'chicken': ['chicken', 'chicken breast', 'chicken thigh', 'chicken meat'],
+        'fish': ['fish', 'salmon', 'tuna', 'mackerel', 'fish fillet'],
+        'bread': ['bread', 'roti', 'chapati', 'naan', 'paratha'],
+        'curd': ['curd', 'yogurt', 'dahi', 'curd'],
+        'paneer': ['paneer', 'cottage cheese', 'paneer'],
+        'cheese': ['cheese', 'cheddar', 'mozzarella', 'cheese'],
+        'sugar': ['sugar', 'jaggery', 'honey', 'sweetener'],
+        'salt': ['salt', 'namak', 'salt'],
+        'turmeric': ['turmeric', 'haldi', 'turmeric powder'],
+        'cumin': ['cumin', 'jeera', 'cumin seeds'],
+        'coriander': ['coriander', 'dhania', 'coriander leaves', 'coriander powder']
     }
     
+    ingredient_lower = ingredient.lower().strip()
     for key, variations in similar_map.items():
-        if ingredient in key or key in ingredient:
+        if ingredient_lower in key or key in ingredient_lower:
             return variations
     return [ingredient]
 
 def generate_fallback_ingredient_response(ingredients: str, diet_type: str, state: str, meal_type: str = "meal") -> str:
     """Generate fallback response when no matches found."""
+    
+    # Suggest similar ingredients based on what user provided
+    ingredient_list = [ing.strip().lower() for ing in ingredients.split(',')]
+    suggestions = []
+    
+    for ingredient in ingredient_list:
+        similar = get_similar_ingredients(ingredient)
+        if len(similar) > 1:  # If we have variations
+            suggestions.extend(similar[:3])  # Take first 3 variations
+    
+    # Remove duplicates and limit suggestions
+    unique_suggestions = list(set(suggestions))[:8]
+    
     return f"""No Perfect {meal_type.title()} Matches Found
 
 Your Ingredients: {ingredients}
@@ -597,6 +689,9 @@ Common additions for {meal_type} in {diet_type} {state.title()} cuisine:
 - Rice, dal, vegetables, spices
 - Onions, tomatoes, potatoes
 - Oil, salt, turmeric, cumin
+
+Similar ingredients you could try:
+{', '.join(unique_suggestions) if unique_suggestions else 'Try basic ingredients like rice, dal, vegetables'}
 
 Try our regular meal plan feature for complete meal suggestions!"""
 
