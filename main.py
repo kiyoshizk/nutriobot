@@ -1540,214 +1540,260 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Calculate points that would be earned for this streak
         points_earned = calculate_streak_points(streak_data['streak_count'])
     
-    # 🔥 PRIMARY: AI meal generation (JSON only as fallback)
-    if MEAL_GENERATOR_AVAILABLE:
-        try:
-            # Show loading message
+    # 🍽️ PRIMARY: Generate meal plan based on user's state
+    try:
+        # Show loading message
+        await query.edit_message_text(
+            "🍽️ **Generating your personalized meal plan...**\n\n"
+            "This will take a few seconds. Please wait! ⏳",
+            parse_mode='Markdown'
+        )
+        
+        # Determine data source based on user's state
+        user_state = user_data.get('state', '').lower()
+        
+        if user_state == 'maharashtra':
+            # 🔥 MAHARASHTRA: Use CSV data ONLY (no fallback)
+            logger.info(f"User {user_id} from Maharashtra - using CSV data only")
+            
+            # Load meals from CSV based on user's diet
+            user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+            
+            # Normalize diet type for CSV matching
+            diet_mapping = {
+                'veg': 'Vegetarian',
+                'vegetarian': 'Vegetarian',
+                'non-veg': 'Non-Vegetarian',
+                'non-vegetarian': 'Non-Vegetarian',
+                'vegan': 'Vegan',
+                'jain': 'Jain',
+                'eggitarian': 'Eggitarian',
+                'keto': 'Keto',
+                'mixed': 'Mixed'
+            }
+            csv_diet_type = diet_mapping.get(user_diet, 'Vegetarian')
+            
+            meals = load_meal_data_from_csv(diet_type=csv_diet_type, max_meals=30)
+            
+            if not meals:
+                await query.edit_message_text(
+                    f"❌ No meal data available for {user_data['diet'].title()} diet in Maharashtra.\n\n"
+                    "Please try again later or contact support.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
+                    ]])
+                )
+                return ConversationHandler.END
+            
+            # Filter meals based on preferences
+            if user_data.get('medical'):
+                filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
+            else:
+                filtered_meals = meals[:10]  # Take first 10 meals if no medical conditions
+            
+            if len(filtered_meals) < 4:
+                # If not enough filtered meals, use all meals
+                filtered_meals = meals[:4]
+            
+            # Select 4 meals for the day
+            selected_meals = random.sample(filtered_meals, min(4, len(filtered_meals)))
+            
+            # Calculate total calories
+            total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
+            
+            # Format meal plan message
+            meal_message = f"🍽️ **Your Daily Meal Plan - Custom Made!**\n\n"
+            meal_message += f"👤 **Made for:** {user_data.get('name', 'Your')} profile\n"
+            meal_message += f"🏛️ **Region:** {user_data['state'].title()}\n"
+            meal_message += f"🥬 **Diet:** {user_data['diet'].title()}\n"
+            meal_message += f"🏥 **Medical:** {user_data['medical'].title()}\n"
+            meal_message += f"🏃 **Activity:** {user_data['activity'].title()}\n"
+            meal_message += f"🔥 **Streak:** {streak_data['streak_count']} days | 🎯 **Points:** {streak_data['streak_points_total']}"
+            if points_earned > 0:
+                meal_message += f" (+{points_earned} today!)"
+            meal_message += "\n\n"
+            
+            meal_types = ["🌅 Breakfast", "🌞 Lunch", "🌙 Dinner", "🍎 Snack"]
+            meal_names = []
+            
+            for i, meal in enumerate(selected_meals):
+                meal_type = meal_types[i] if i < len(meal_types) else "🍽️ Meal"
+                meal_name = meal.get('Dish Combo', meal.get('Food Item', 'Unknown'))
+                calories = meal.get('approx_calories', 200)
+                health_impact = meal.get('Health Impact', '')
+                ingredients = meal.get('Ingredients', [])
+                calorie_level = meal.get('Calorie Level', '')
+                
+                meal_message += f"**{meal_type}:** {meal_name}\n"
+                meal_message += f"🔥 Calories: ~{calories}\n"
+                if calorie_level:
+                    meal_message += f"📊 Calorie Level: {calorie_level.title()}\n"
+                if ingredients:
+                    ingredients_text = ", ".join(ingredients)
+                    meal_message += f"🥘 Ingredients: {ingredients_text}\n"
+                if health_impact:
+                    meal_message += f"💡 Health Impact: {health_impact}\n"
+                meal_message += "\n"
+                
+                # Store meal name for rating
+                meal_names.append({'name': meal_name})
+            
+            meal_message += f"**Total Calories:** ~{total_calories}\n\n"
+            meal_message += "💡 *All meals are picked just for you based on your vibe and health needs*"
+            
+            # Create action buttons with ratings for the first meal
+            first_meal_name = meal_names[0].get('name', '') if meal_names else 'Meal Plan'
+            
+            # Clean meal name for callback data (remove special characters)
+            clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
+            if not clean_meal_name:
+                clean_meal_name = "Meal_Plan"
+            
+            keyboard = [
+                [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}")],
+                [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")],
+                [InlineKeyboardButton("📝 Log Today's Meals", callback_data="log_meal")],
+                [InlineKeyboardButton("🛒 Grocery List", callback_data="grocery_list")],
+                [InlineKeyboardButton("🚚 Order on Zepto", callback_data="order_zepto")],
+                [InlineKeyboardButton("🔄 New Plan", callback_data="get_meal_plan")],
+                [InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Cache the suggested meals for logging
+            context.user_data["last_suggested_meals"] = meal_names
+            
             await query.edit_message_text(
-                "🍽️ **Generating your personalized meal plan...**\n\n"
-                "This will take a few seconds. Please wait! ⏳",
+                meal_message,
+                reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
+            logger.info(f"✅ CSV meal plan sent to user {user_id} from Maharashtra")
+            return MEAL_PLAN
             
-            # Generate AI meal plan (using CSV data)
-            ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db)
-            logger.info(f"AI meal plan generated for user {user_id}: {len(ai_meal_plan) if ai_meal_plan else 0} characters")
-            
-            if ai_meal_plan and ai_meal_plan.strip():
-                # Create action buttons for AI meal plan with actual meal names
-                # Get the first meal name for rating
-                first_meal_name = "AI Generated Meal Plan"
-                if meal_names and len(meal_names) > 0:
-                    first_meal_name = meal_names[0].get('name', 'AI Generated Meal Plan')
+        else:
+            # 🔄 OTHER STATES: Use AI meal generation (JSON fallback)
+            if MEAL_GENERATOR_AVAILABLE:
+                # Generate AI meal plan (using JSON data)
+                ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db)
+                logger.info(f"AI meal plan generated for user {user_id}: {len(ai_meal_plan) if ai_meal_plan else 0} characters")
                 
-                # Clean meal name for callback data (remove special characters)
-                clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
-                if not clean_meal_name:
-                    clean_meal_name = "AI_Generated_Meal"
-                
-                keyboard = [
-                    [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}")],
-                    [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")],
-                    [InlineKeyboardButton("📝 Log Today's Meals", callback_data="log_meal")],
-                    [InlineKeyboardButton("🛒 Grocery List", callback_data="grocery_list")],
-                    [InlineKeyboardButton("🚚 Order on Zepto", callback_data="order_zepto")],
-                    [InlineKeyboardButton("🔄 New AI Plan", callback_data="get_meal_plan")],
-                    [InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                # Cache the suggested meals for logging
-                # Enhanced meal extraction for AI responses
-                meal_names = []
-                
-                # Extract meal names using improved regex patterns
-                meal_patterns = [
-                    r'🌅\s*(.*?)\s*-\s*\d+',  # Breakfast pattern
-                    r'☀️\s*(.*?)\s*-\s*\d+',  # Lunch pattern  
-                    r'🌙\s*(.*?)\s*-\s*\d+',  # Dinner pattern
-                    r'🍎\s*(.*?)\s*-\s*\d+',  # Snack pattern
-                    r'🌅\s*(.*?)(?:\n|$)',    # Breakfast without calories
-                    r'☀️\s*(.*?)(?:\n|$)',    # Lunch without calories
-                    r'🌙\s*(.*?)(?:\n|$)',    # Dinner without calories
-                    r'🍎\s*(.*?)(?:\n|$)',    # Snack without calories
-                ]
-                
-                for pattern in meal_patterns:
-                    matches = re.findall(pattern, ai_meal_plan, re.MULTILINE)
-                    for match in matches:
-                        meal_name = match.strip()
-                        if meal_name and len(meal_name) > 2 and len(meal_name) < 50:
-                            # Clean meal name
-                            meal_name = re.sub(r'[^\w\s\-]', '', meal_name).strip()
-                            if meal_name:
-                                meal_names.append({'name': meal_name})
-                
-                # If regex extraction fails, use enhanced line parsing
-                if not meal_names:
-                    lines = ai_meal_plan.split('\n')
-                    for line in lines:
-                        line = line.strip()
-                        if any(emoji in line for emoji in ['🌅', '☀️', '🌙', '🍎']):
-                            # Remove emoji and extract meal name
-                            for emoji in ['🌅', '☀️', '🌙', '🍎']:
-                                if emoji in line:
-                                    # Extract text after emoji, before any dash or newline
-                                    parts = line.split(emoji, 1)
-                                    if len(parts) > 1:
-                                        meal_text = parts[1].strip()
-                                        # Remove calories and other info
-                                        if ' - ' in meal_text:
-                                            meal_name = meal_text.split(' - ')[0].strip()
-                                        else:
-                                            meal_name = meal_text.split()[0] if meal_text.split() else ''
-                                        
-                                        # Clean and validate meal name
-                                        if meal_name and len(meal_name) > 2 and len(meal_name) < 50:
-                                            meal_name = re.sub(r'[^\w\s\-]', '', meal_name).strip()
-                                            if meal_name:
-                                                meal_names.append({'name': meal_name})
-                                    break
-                
-                # Final fallback: create default meal names
-                if not meal_names:
-                    meal_names = [
-                        {'name': 'Breakfast'},
-                        {'name': 'Lunch'},
-                        {'name': 'Dinner'},
-                        {'name': 'Snack'}
+                if ai_meal_plan and ai_meal_plan.strip():
+                    # Create action buttons for AI meal plan with actual meal names
+                    # Get the first meal name for rating
+                    first_meal_name = "AI Generated Meal Plan"
+                    if meal_names and len(meal_names) > 0:
+                        first_meal_name = meal_names[0].get('name', 'AI Generated Meal Plan')
+                    
+                    # Clean meal name for callback data (remove special characters)
+                    clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
+                    if not clean_meal_name:
+                        clean_meal_name = "AI_Generated_Meal"
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}")],
+                        [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")],
+                        [InlineKeyboardButton("📝 Log Today's Meals", callback_data="log_meal")],
+                        [InlineKeyboardButton("🛒 Grocery List", callback_data="grocery_list")],
+                        [InlineKeyboardButton("🚚 Order on Zepto", callback_data="order_zepto")],
+                        [InlineKeyboardButton("🔄 New AI Plan", callback_data="get_meal_plan")],
+                        [InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")]
                     ]
-                
-                context.user_data["last_suggested_meals"] = meal_names
-                
-                await query.edit_message_text(
-                    ai_meal_plan,
-                    reply_markup=reply_markup
-                )
-                logger.info(f"✅ AI meal plan sent to user {user_id}")
-                return MEAL_PLAN
-            else:
-                logger.warning(f"⚠️ AI meal plan failed for user {user_id}, using fallback")
-                
-        except Exception as e:
-            logger.error(f"❌ Error in AI meal generation: {e}")
-            # Continue with fallback
-    
-    # 🔄 SECONDARY FALLBACK: Use CSV-based logic only if AI fails
-    # Load meals from CSV based on user's diet
-    user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
-    meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=30)
-    if not meals:
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Cache the suggested meals for logging
+                    # Enhanced meal extraction for AI responses
+                    meal_names = []
+                    
+                    # Extract meal names using improved regex patterns
+                    meal_patterns = [
+                        r'🌅\s*(.*?)\s*-\s*\d+',  # Breakfast pattern
+                        r'☀️\s*(.*?)\s*-\s*\d+',  # Lunch pattern  
+                        r'🌙\s*(.*?)\s*-\s*\d+',  # Dinner pattern
+                        r'🍎\s*(.*?)\s*-\s*\d+',  # Snack pattern
+                        r'🌅\s*(.*?)(?:\n|$)',    # Breakfast without calories
+                        r'☀️\s*(.*?)(?:\n|$)',    # Lunch without calories
+                        r'🌙\s*(.*?)(?:\n|$)',    # Dinner without calories
+                        r'🍎\s*(.*?)(?:\n|$)',    # Snack without calories
+                    ]
+                    
+                    for pattern in meal_patterns:
+                        matches = re.findall(pattern, ai_meal_plan, re.MULTILINE)
+                        for match in matches:
+                            meal_name = match.strip()
+                            if meal_name and len(meal_name) > 2 and len(meal_name) < 50:
+                                # Clean meal name
+                                meal_name = re.sub(r'[^\w\s\-]', '', meal_name).strip()
+                                if meal_name:
+                                    meal_names.append({'name': meal_name})
+                    
+                    # If regex extraction fails, use enhanced line parsing
+                    if not meal_names:
+                        lines = ai_meal_plan.split('\n')
+                        for line in lines:
+                            line = line.strip()
+                            if any(emoji in line for emoji in ['🌅', '☀️', '🌙', '🍎']):
+                                # Remove emoji and extract meal name
+                                for emoji in ['🌅', '☀️', '🌙', '🍎']:
+                                    if emoji in line:
+                                        # Extract text after emoji, before any dash or newline
+                                        parts = line.split(emoji, 1)
+                                        if len(parts) > 1:
+                                            meal_text = parts[1].strip()
+                                            # Remove calories and other info
+                                            if ' - ' in meal_text:
+                                                meal_name = meal_text.split(' - ')[0].strip()
+                                            else:
+                                                meal_name = meal_text.split()[0] if meal_text.split() else ''
+                                            
+                                            # Clean and validate meal name
+                                            if meal_name and len(meal_name) > 2 and len(meal_name) < 50:
+                                                meal_name = re.sub(r'[^\w\s\-]', '', meal_name).strip()
+                                                if meal_name:
+                                                    meal_names.append({'name': meal_name})
+                                        break
+                    
+                    # Final fallback: create default meal names
+                    if not meal_names:
+                        meal_names = [
+                            {'name': 'Breakfast'},
+                            {'name': 'Lunch'},
+                            {'name': 'Dinner'},
+                            {'name': 'Snack'}
+                        ]
+                    
+                    context.user_data["last_suggested_meals"] = meal_names
+                    
+                    await query.edit_message_text(
+                        ai_meal_plan,
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"✅ AI meal plan sent to user {user_id}")
+                    return MEAL_PLAN
+                else:
+                    logger.warning(f"⚠️ AI meal plan failed for user {user_id}")
+                    
+            # If AI fails or not available, show error for non-Maharashtra states
+            await query.edit_message_text(
+                f"❌ Unable to generate meal plan for {user_data['state'].title()}.\n\n"
+                "Please try again later or contact support.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
+                ]])
+            )
+            return ConversationHandler.END
+            return ConversationHandler.END
+            
+    except Exception as e:
+        logger.error(f"❌ Error in meal generation: {e}")
         await query.edit_message_text(
-            f"❌ No meal data available for {user_data['diet'].title()} diet.\n\n"
-            "Please try again later or contact support.",
+            "❌ **Error generating meal plan**\n\n"
+            "Something went wrong. Please try again later.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
             ]])
         )
         return ConversationHandler.END
-    
-    # Filter meals based on preferences
-    if user_data.get('medical'):
-        filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
-    else:
-        filtered_meals = meals[:10]  # Take first 10 meals if no medical conditions
-    
-    if len(filtered_meals) < 4:
-        # If not enough filtered meals, use all meals
-        filtered_meals = meals[:4]
-    
-    # Select 4 meals for the day
-    selected_meals = random.sample(filtered_meals, min(4, len(filtered_meals)))
-    
-    # Calculate total calories
-    total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
-    
-    # Format meal plan message
-    meal_message = f"🍽️ **Your Daily Meal Plan - Custom Made!**\n\n"
-    meal_message += f"👤 **Made for:** {user_data.get('name', 'Your')} profile\n"
-    meal_message += f"🏛️ **Region:** {user_data['state'].title()}\n"
-    meal_message += f"🥬 **Diet:** {user_data['diet'].title()}\n"
-    meal_message += f"🏥 **Medical:** {user_data['medical'].title()}\n"
-    meal_message += f"🏃 **Activity:** {user_data['activity'].title()}\n"
-    meal_message += f"🔥 **Streak:** {streak_data['streak_count']} days | 🎯 **Points:** {streak_data['streak_points_total']}"
-    if points_earned > 0:
-        meal_message += f" (+{points_earned} today!)"
-    meal_message += "\n\n"
-    
-    meal_types = ["🌅 Breakfast", "🌞 Lunch", "🌙 Dinner", "🍎 Snack"]
-    for i, meal in enumerate(selected_meals):
-        meal_type = meal_types[i] if i < len(meal_types) else "🍽️ Meal"
-        meal_name = meal.get('Food Item', 'Unknown')
-        calories = meal.get('approx_calories', 200)
-        health_impact = meal.get('Health Impact', '')
-        ingredients = meal.get('Ingredients', [])
-        calorie_level = meal.get('Calorie Level', '')
-        
-        meal_message += f"**{meal_type}:** {meal_name}\n"
-        meal_message += f"🔥 Calories: ~{calories}\n"
-        if calorie_level:
-            meal_message += f"📊 Calorie Level: {calorie_level.title()}\n"
-        if ingredients:
-            ingredients_text = ", ".join(ingredients)
-            meal_message += f"🥘 Ingredients: {ingredients_text}\n"
-        if health_impact:
-            meal_message += f"💡 Health Impact: {health_impact}\n"
-        meal_message += "\n"
-    
-    meal_message += f"**Total Calories:** ~{total_calories}\n\n"
-    meal_message += "💡 *All meals are picked just for you based on your vibe and health needs*"
-    
-    # Create action buttons with ratings for the first meal
-    first_meal_name = selected_meals[0].get('Food Item', '') if selected_meals else 'Meal Plan'
-    
-    # Clean meal name for callback data (remove special characters)
-    import re
-    clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
-    if not clean_meal_name:
-        clean_meal_name = "Meal_Plan"
-    
-    keyboard = [
-        [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}")],
-        [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")],
-        [InlineKeyboardButton("📝 Log Today's Meals", callback_data="log_meal")],
-        [InlineKeyboardButton("🛒 Grocery List", callback_data="grocery_list")],
-        [InlineKeyboardButton("🚚 Order on Zepto", callback_data="order_zepto")],
-        [InlineKeyboardButton("🔄 New Plan", callback_data="get_meal_plan")],
-        [InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Cache the suggested meals for logging
-    context.user_data["last_suggested_meals"] = selected_meals
-    
-    await query.edit_message_text(
-        meal_message,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
-    
-    return MEAL_PLAN
 
 async def handle_weekly_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle weekly meal plan request."""
