@@ -1544,8 +1544,8 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     try:
         # Show loading message
         await query.edit_message_text(
-            "🍽️ **Generating your personalized meal plan...**\n\n"
-            "This will take a few seconds. Please wait! ⏳",
+            "**Generating your meal plan...**\n\n"
+            "Please wait a moment.",
             parse_mode='Markdown'
         )
         
@@ -1643,45 +1643,48 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             # Calculate total calories
             total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
             
-            # Format meal plan message
-            meal_message = f"🍽️ **Your Daily Meal Plan - Custom Made!**\n\n"
-            meal_message += f"👤 **Made for:** {user_data.get('name', 'Your')} profile\n"
-            meal_message += f"🏛️ **Region:** {user_data['state'].title()}\n"
-            meal_message += f"🥬 **Diet:** {user_data['diet'].title()}\n"
-            meal_message += f"🏥 **Medical:** {user_data['medical'].title()}\n"
-            meal_message += f"🏃 **Activity:** {user_data['activity'].title()}\n"
-            meal_message += f"🔥 **Streak:** {streak_data['streak_count']} days | 🎯 **Points:** {streak_data['streak_points_total']}"
+            # Format meal plan message with clean, readable layout
+            meal_message = f"**Daily Meal Plan**\n\n"
+            meal_message += f"**Profile:** {user_data.get('name', 'Your')}\n"
+            meal_message += f"**Region:** {user_data['state'].title()}\n"
+            meal_message += f"**Diet:** {user_data['diet'].title()}\n"
+            meal_message += f"**Medical:** {user_data['medical'].title()}\n"
+            meal_message += f"**Activity:** {user_data['activity'].title()}\n"
+            meal_message += f"**Streak:** {streak_data['streak_count']} days | **Points:** {streak_data['streak_points_total']}"
             if points_earned > 0:
-                meal_message += f" (+{points_earned} today!)"
+                meal_message += f" (+{points_earned} today)"
             meal_message += "\n\n"
+            meal_message += "─" * 40 + "\n\n"
             
-            meal_types = ["🌅 Breakfast", "🌞 Lunch", "🌙 Dinner", "🍎 Snack"]
+            meal_types = ["Breakfast", "Lunch", "Dinner", "Snack"]
             meal_names = []
             
             for i, meal in enumerate(selected_meals):
-                meal_type = meal_types[i] if i < len(meal_types) else "🍽️ Meal"
+                meal_type = meal_types[i] if i < len(meal_types) else "Meal"
                 meal_name = meal.get('Dish Combo', meal.get('Food Item', 'Unknown'))
                 calories = meal.get('approx_calories', 200)
                 health_impact = meal.get('Health Impact', '')
                 ingredients = meal.get('Ingredients', [])
                 calorie_level = meal.get('Calorie Level', '')
                 
-                meal_message += f"**{meal_type}:** {meal_name}\n"
-                meal_message += f"🔥 Calories: ~{calories}\n"
+                meal_message += f"**{meal_type}**\n"
+                meal_message += f"{meal_name}\n"
+                meal_message += f"Calories: {calories}\n"
                 if calorie_level:
-                    meal_message += f"📊 Calorie Level: {calorie_level.title()}\n"
+                    meal_message += f"Level: {calorie_level.title()}\n"
                 if ingredients:
                     ingredients_text = ", ".join(ingredients)
-                    meal_message += f"🥘 Ingredients: {ingredients_text}\n"
+                    meal_message += f"Ingredients: {ingredients_text}\n"
                 if health_impact:
-                    meal_message += f"💡 Health Impact: {health_impact}\n"
+                    meal_message += f"Health: {health_impact}\n"
                 meal_message += "\n"
                 
                 # Store meal name for rating
                 meal_names.append({'name': meal_name})
             
-            meal_message += f"**Total Calories:** ~{total_calories}\n\n"
-            meal_message += "💡 *All meals are picked just for you based on your vibe and health needs*"
+            meal_message += "─" * 40 + "\n"
+            meal_message += f"**Total Calories:** {total_calories}\n\n"
+            meal_message += "*Meals personalized for your health needs*"
             
             # Create action buttons with ratings for the first meal
             first_meal_name = meal_names[0].get('name', '') if meal_names else 'Meal Plan'
@@ -1692,13 +1695,19 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 clean_meal_name = "Meal_Plan"
             
             keyboard = [
-                [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}")],
-                [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")],
-                [InlineKeyboardButton("📝 Log Today's Meals", callback_data="log_meal")],
-                [InlineKeyboardButton("🛒 Grocery List", callback_data="grocery_list")],
-                [InlineKeyboardButton("🚚 Order on Zepto", callback_data="order_zepto")],
-                [InlineKeyboardButton("🔄 New Plan", callback_data="get_meal_plan")],
-                [InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")]
+                [
+                    InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}"),
+                    InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")
+                ],
+                [InlineKeyboardButton("Log Today's Meals", callback_data="log_meal")],
+                [
+                    InlineKeyboardButton("Grocery List", callback_data="grocery_list"),
+                    InlineKeyboardButton("Order on Zepto", callback_data="order_zepto")
+                ],
+                [
+                    InlineKeyboardButton("New Plan", callback_data="get_meal_plan"),
+                    InlineKeyboardButton("Go Back", callback_data="go_back")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -1733,13 +1742,19 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                         clean_meal_name = "AI_Generated_Meal"
                     
                     keyboard = [
-                        [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}")],
-                        [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")],
-                        [InlineKeyboardButton("📝 Log Today's Meals", callback_data="log_meal")],
-                        [InlineKeyboardButton("🛒 Grocery List", callback_data="grocery_list")],
-                        [InlineKeyboardButton("🚚 Order on Zepto", callback_data="order_zepto")],
-                        [InlineKeyboardButton("🔄 New AI Plan", callback_data="get_meal_plan")],
-                        [InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")]
+                        [
+                            InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}"),
+                            InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")
+                        ],
+                        [InlineKeyboardButton("Log Today's Meals", callback_data="log_meal")],
+                        [
+                            InlineKeyboardButton("Grocery List", callback_data="grocery_list"),
+                            InlineKeyboardButton("Order on Zepto", callback_data="order_zepto")
+                        ],
+                        [
+                            InlineKeyboardButton("New Plan", callback_data="get_meal_plan"),
+                            InlineKeyboardButton("Go Back", callback_data="go_back")
+                        ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
