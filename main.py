@@ -61,6 +61,10 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 FIREBASE_CREDENTIALS_PATH = os.getenv('FIREBASE_CREDENTIALS_PATH', 'firebase-credentials.json')
 FIREBASE_CREDENTIALS_JSON = os.getenv('FIREBASE_CREDENTIALS_JSON')
 
+# Timeout configuration
+CSV_PROCESSING_TIMEOUT = 30  # seconds
+FIREBASE_TIMEOUT = 10  # seconds
+
 # Security configuration - Updated to include all diet types used in the app
 ALLOWED_DIET_TYPES = {
     'vegetarian', 'veg', 'non-vegetarian', 'non-veg', 'vegan', 
@@ -551,6 +555,11 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
                 for row_num, row in enumerate(reader, 1):
                     # Security: Limit number of meals processed
                     if meals_found >= max_meals:
+                        break
+                    
+                    # Memory safety: Limit total rows processed
+                    if row_num > 10000:  # Safety limit
+                        logger.warning("Reached safety limit of 10,000 rows, stopping processing")
                         break
                     
                     # Security: Validate row data
@@ -3322,32 +3331,37 @@ def main() -> None:
         print("🔥 Firebase integration available" if FIREBASE_AVAILABLE else "⚠️ Firebase not available - install firebase-admin")
         print("🤖 AI meal generator available" if AI_AVAILABLE else "⚠️ AI meal generator not available")
         
-        # Test Firebase connection if available
-        if FIREBASE_AVAILABLE:
-            print("🧪 Testing Firebase connection...")
-            try:
-                # Create test data for demonstration
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                test_data_result = loop.run_until_complete(create_test_data())
-                if test_data_result:
-                    print("✅ Test data created! Check Firebase Console now!")
-                else:
-                    print("❌ Failed to create test data")
-                
-                loop.close()
-            except Exception as e:
-                print(f"❌ Firebase test error: {e}")
+        # Test Firebase connection if available (commented out to prevent crashes)
+        # if FIREBASE_AVAILABLE:
+        #     print("🧪 Testing Firebase connection...")
+        #     try:
+        #         # Create test data for demonstration
+        #         loop = asyncio.new_event_loop()
+        #         asyncio.set_event_loop(loop)
+        #         
+        #         test_data_result = loop.run_until_complete(create_test_data())
+        #         if test_data_result:
+        #             print("✅ Test data created! Check Firebase Console now!")
+        #         else:
+        #             print("❌ Failed to create test data")
+        #         
+        #         loop.close()
+        #     except Exception as e:
+        #         print(f"❌ Firebase test error: {e}")
         
         # Start the bot with enhanced polling configuration
         print("🚀 Starting bot polling...")
-        application.run_polling(
-            drop_pending_updates=True, 
-            allowed_updates=[],
-            close_loop=False,
-            stop_signals=None
-        )
+        try:
+            application.run_polling(
+                drop_pending_updates=True, 
+                allowed_updates=[],
+                close_loop=False,
+                stop_signals=None
+            )
+        except Exception as polling_error:
+            print(f"❌ Polling error: {polling_error}")
+            logger.error(f"Polling error: {polling_error}")
+            raise
         
     except KeyboardInterrupt:
         print("\n🛑 Bot stopped by user (Ctrl+C)")
