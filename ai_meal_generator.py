@@ -105,7 +105,7 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
                     break
                 
                 # Simple validation
-                if not row.get('Food Item') or not row.get('Diet Type'):
+                if not row.get('Dish Combo') or not row.get('Diet Type'):
                     continue
                 
                 # Apply filters
@@ -117,7 +117,7 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
                 
                 # Convert to standard format
                 meal = {
-                    'name': row.get('Food Item', 'Unknown'),
+                    'name': row.get('Dish Combo', 'Unknown'),
                     'calories': int(row.get('Calories (kcal)', 0)),
                     'ingredients': row.get('Ingredients (per serving)', '').split(',') if row.get('Ingredients (per serving)') else [],
                     'meal_type': row.get('Meal', 'general'),
