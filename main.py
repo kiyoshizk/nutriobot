@@ -1585,18 +1585,60 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 )
                 return ConversationHandler.END
             
-            # Filter meals based on preferences
-            if user_data.get('medical'):
-                filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
-            else:
-                filtered_meals = meals[:10]  # Take first 10 meals if no medical conditions
+            # Filter meals by meal type to ensure we get one of each
+            meal_categories = {
+                'Breakfast': [],
+                'Lunch': [],
+                'Dinner': [],
+                'Evening Snack': [],
+                'Morning Snack': []
+            }
             
-            if len(filtered_meals) < 4:
-                # If not enough filtered meals, use all meals
-                filtered_meals = meals[:4]
+            # Categorize meals by their meal type
+            for meal in meals:
+                meal_type = meal.get('Category', meal.get('Meal', '')).strip()
+                if meal_type in meal_categories:
+                    meal_categories[meal_type].append(meal)
+                elif 'breakfast' in meal_type.lower():
+                    meal_categories['Breakfast'].append(meal)
+                elif 'lunch' in meal_type.lower():
+                    meal_categories['Lunch'].append(meal)
+                elif 'dinner' in meal_type.lower():
+                    meal_categories['Dinner'].append(meal)
+                elif 'snack' in meal_type.lower():
+                    if 'morning' in meal_type.lower():
+                        meal_categories['Morning Snack'].append(meal)
+                    else:
+                        meal_categories['Evening Snack'].append(meal)
             
-            # Select 4 meals for the day
-            selected_meals = random.sample(filtered_meals, min(4, len(filtered_meals)))
+            # Select one meal from each category
+            selected_meals = []
+            meal_types_order = ['Breakfast', 'Lunch', 'Dinner', 'Evening Snack']
+            
+            for meal_type in meal_types_order:
+                available_meals = meal_categories.get(meal_type, [])
+                if available_meals:
+                    # Randomly select one meal from this category
+                    selected_meal = random.choice(available_meals)
+                    selected_meals.append(selected_meal)
+                else:
+                    # If no meals in this category, try to find a similar one
+                    if meal_type == 'Evening Snack' and meal_categories.get('Morning Snack'):
+                        selected_meal = random.choice(meal_categories['Morning Snack'])
+                        selected_meals.append(selected_meal)
+                    elif len(meals) > len(selected_meals):
+                        # Fallback: pick any remaining meal
+                        remaining_meals = [m for m in meals if m not in selected_meals]
+                        if remaining_meals:
+                            selected_meals.append(random.choice(remaining_meals))
+            
+            # If we still don't have 4 meals, add more from any category
+            while len(selected_meals) < 4 and len(meals) > len(selected_meals):
+                remaining_meals = [m for m in meals if m not in selected_meals]
+                if remaining_meals:
+                    selected_meals.append(random.choice(remaining_meals))
+                else:
+                    break
             
             # Calculate total calories
             total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
