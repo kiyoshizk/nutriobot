@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """
-Simplified AI Meal Generator
-Minimal AI work - just formatting and responding
-All meal logic comes from static database
+Static Meal Selector
+No AI - just pulls meals from static database
 """
 
 import logging
-import random
 import csv
 import json
-import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
-import asyncio
 
 # Enable logging
 logging.basicConfig(
@@ -30,7 +26,6 @@ ALLOWED_DIET_TYPES = {
 }
 ALLOWED_MEAL_TYPES = {'breakfast', 'lunch', 'dinner', 'snack', 'morning snack', 'evening snack'}
 MAX_MEALS_PER_REQUEST = 50
-MAX_FILE_SIZE_MB = 10
 MAX_CACHE_SIZE = 1000
 
 # Cache for performance
@@ -83,7 +78,7 @@ def get_fallback_meal_data() -> List[Dict[str, Any]]:
     ]
 
 def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_meals: int = MAX_MEALS_PER_REQUEST) -> List[Dict[str, Any]]:
-    """Load meal data from CSV file - simplified version."""
+    """Load meal data from CSV file - static version."""
     try:
         csv_path = Path("all_mealplans_merged.csv")
         if not csv_path.exists():
@@ -140,7 +135,7 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
         return get_fallback_meal_data()
 
 def load_meal_data_from_json(state: str) -> List[Dict[str, Any]]:
-    """Load meal data from JSON files - simplified version."""
+    """Load meal data from JSON files - static version."""
     try:
         if state.lower() == "karnataka":
             with open("karnataka.json", 'r', encoding='utf-8') as file:
@@ -171,7 +166,7 @@ def load_meal_data_from_json(state: str) -> List[Dict[str, Any]]:
         return []
 
 def format_meal_plan(meals: List[Dict[str, Any]], user_name: str, age: int, diet: str, state: str, user_id: int = 0) -> str:
-    """Format meal plan with minimal AI work - just formatting."""
+    """Format meal plan - static version, no AI."""
     
     # Get user's meal counter for sequential selection
     if user_id not in user_meal_counter:
@@ -203,7 +198,7 @@ def format_meal_plan(meals: List[Dict[str, Any]], user_name: str, age: int, diet
         tone = "Greetings! 🙏"
     
     # Format the response
-    response = f"{tone} Here's your personalized meal plan, {user_name}!\n\n"
+    response = f"{tone} Here's your meal plan, {user_name}!\n\n"
     
     if breakfast:
         response += f"🌅 **BREAKFAST** (7-9 AM)\n{breakfast['name']} - {breakfast['calories']} calories\n\n"
@@ -217,12 +212,12 @@ def format_meal_plan(meals: List[Dict[str, Any]], user_name: str, age: int, diet
     if snack:
         response += f"🍎 **SNACK** (3-4 PM)\n{snack['name']} - {snack['calories']} calories\n\n"
     
-    response += f"💡 All meals are picked from our curated {state} cuisine database based on your {diet} preferences!"
+    response += f"💡 All meals are from our {state} cuisine database based on your {diet} preferences!"
     
     return response
 
-async def save_ai_meal_to_firebase(user_id: int, meal_plan: str, db) -> bool:
-    """Save meal plan to Firebase - simplified."""
+async def save_meal_to_firebase(user_id: int, meal_plan: str, db) -> bool:
+    """Save meal plan to Firebase - static version."""
     if not db:
         return False
     
@@ -245,8 +240,8 @@ async def save_ai_meal_to_firebase(user_id: int, meal_plan: str, db) -> bool:
         logger.error(f"Failed to save meal plan: {e}")
         return False
 
-async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> Optional[str]:
-    """Generate meal plan with minimal AI work - just formatting and responding."""
+async def generate_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> Optional[str]:
+    """Generate meal plan - static version, no AI."""
     
     try:
         # Extract user info
@@ -269,12 +264,12 @@ async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) 
             if not meals:
                 meals = load_meal_data_from_csv(diet_type=diet, max_meals=20)
         
-        # Format the response (minimal AI work)
+        # Format the response (no AI, just formatting)
         meal_plan = format_meal_plan(meals, name, age, diet, state, user_id)
         
         # Save to Firebase if available
         if db:
-            await save_ai_meal_to_firebase(user_id, meal_plan, db)
+            await save_meal_to_firebase(user_id, meal_plan, db)
         
         return meal_plan
         
@@ -299,7 +294,7 @@ Mixed fruits and nuts - 150 calories
 💡 These are healthy fallback meals from our database!"""
 
 def get_regional_foods(state: str) -> List[str]:
-    """Get regional food suggestions - simplified."""
+    """Get regional food suggestions - static version."""
     regional_foods = {
         'maharashtra': ['Poha', 'Misal Pav', 'Vada Pav', 'Puran Poli'],
         'karnataka': ['Bisi Bele Bath', 'Ragi Mudde', 'Mangalore Fish Curry'],
@@ -315,7 +310,7 @@ def get_regional_foods(state: str) -> List[str]:
     return regional_foods.get(state.lower(), ['Healthy Indian Food'])
 
 def generate_ingredient_based_meal_plan(ingredients: List[str], diet_type: str, state: str) -> str:
-    """Generate ingredient-based meal plan - simplified."""
+    """Generate ingredient-based meal plan - static version."""
     
     # Load meals from database
     meals = load_meal_data_from_csv(diet_type=diet_type, max_meals=50)
@@ -341,4 +336,13 @@ def generate_ingredient_based_meal_plan(ingredients: List[str], diet_type: str, 
     
     response += f"💡 Based on your {diet_type} preferences and {state} cuisine!"
     
-    return response 
+    return response
+
+# Legacy function names for compatibility
+async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> Optional[str]:
+    """Legacy function - now calls static meal generation."""
+    return await generate_meal_plan(profile, user_id, db)
+
+async def save_ai_meal_to_firebase(user_id: int, meal_plan: str, db) -> bool:
+    """Legacy function - now calls static save function."""
+    return await save_meal_to_firebase(user_id, meal_plan, db) 

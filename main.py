@@ -41,13 +41,13 @@ except ImportError:
     FIREBASE_AVAILABLE = False
     print("\u26A0\uFE0F Firebase not available - install with: pip install firebase-admin")
 
-# AI Meal Generator imports (CSV-based)
+# Static Meal Generator imports
 try:
     from ai_meal_generator import generate_ai_meal_plan, get_fallback_meal_message
-    AI_AVAILABLE = True
+    MEAL_GENERATOR_AVAILABLE = True
 except ImportError:
-    AI_AVAILABLE = False
-    print("\u26A0\uFE0F AI meal generator not available - check ai_meal_generator.py")
+    MEAL_GENERATOR_AVAILABLE = False
+    print("\u26A0\uFE0F Meal generator not available - check ai_meal_generator.py")
 
 # Enable logging
 logging.basicConfig(
@@ -1541,7 +1541,7 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         points_earned = calculate_streak_points(streak_data['streak_count'])
     
     # 🔥 PRIMARY: AI meal generation (JSON only as fallback)
-    if AI_AVAILABLE:
+    if MEAL_GENERATOR_AVAILABLE:
         try:
             # Show loading message
             await query.edit_message_text(
@@ -3329,7 +3329,7 @@ def main() -> None:
         print("🚀 Run the bot with: python main.py")
         print("📁 Make sure all required files are in the same folder")
         print("🔥 Firebase integration available" if FIREBASE_AVAILABLE else "⚠️ Firebase not available - install firebase-admin")
-        print("🤖 AI meal generator available" if AI_AVAILABLE else "⚠️ AI meal generator not available")
+        print("🍽️ Static meal generator available" if MEAL_GENERATOR_AVAILABLE else "⚠️ Meal generator not available")
         
         # Test Firebase connection if available (commented out to prevent crashes)
         # if FIREBASE_AVAILABLE:
