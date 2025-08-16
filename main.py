@@ -1545,15 +1545,16 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         try:
             # Show loading message
             await query.edit_message_text(
-                "🤖 **AI is crafting your personalized meal plan...**\n\n"
+                "🍽️ **Generating your personalized meal plan...**\n\n"
                 "This will take a few seconds. Please wait! ⏳",
                 parse_mode='Markdown'
             )
             
             # Generate AI meal plan (using CSV data)
             ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db)
+            logger.info(f"AI meal plan generated for user {user_id}: {len(ai_meal_plan) if ai_meal_plan else 0} characters")
             
-            if ai_meal_plan:
+            if ai_meal_plan and ai_meal_plan.strip():
                 # Create action buttons for AI meal plan with actual meal names
                 # Get the first meal name for rating
                 first_meal_name = "AI Generated Meal Plan"
