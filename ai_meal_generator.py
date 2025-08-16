@@ -35,6 +35,7 @@ MAX_CACHE_SIZE = 1000
 
 # Cache for performance
 meal_data_cache: Dict[str, List[Dict[str, Any]]] = {}
+user_meal_counter: Dict[int, int] = {}  # Track meal position for each user
 
 def cleanup_cache(cache: Dict[str, Any]) -> None:
     """Clean up cache to prevent memory issues."""
@@ -169,8 +170,14 @@ def load_meal_data_from_json(state: str) -> List[Dict[str, Any]]:
         logger.error(f"Error loading JSON data for {state}: {e}")
         return []
 
-def format_meal_plan(meals: List[Dict[str, Any]], user_name: str, age: int, diet: str, state: str) -> str:
+def format_meal_plan(meals: List[Dict[str, Any]], user_name: str, age: int, diet: str, state: str, user_id: int = 0) -> str:
     """Format meal plan with minimal AI work - just formatting."""
+    
+    # Get user's meal counter for sequential selection
+    if user_id not in user_meal_counter:
+        user_meal_counter[user_id] = 0
+    
+    counter = user_meal_counter[user_id]
     
     # Simple meal categorization
     breakfast_meals = [m for m in meals if 'breakfast' in m.get('meal_type', '').lower()]
@@ -178,11 +185,14 @@ def format_meal_plan(meals: List[Dict[str, Any]], user_name: str, age: int, diet
     dinner_meals = [m for m in meals if 'dinner' in m.get('meal_type', '').lower()]
     snack_meals = [m for m in meals if 'snack' in m.get('meal_type', '').lower()]
     
-    # Select meals (simple random selection)
-    breakfast = random.choice(breakfast_meals) if breakfast_meals else meals[0] if meals else None
-    lunch = random.choice(lunch_meals) if lunch_meals else meals[1] if len(meals) > 1 else None
-    dinner = random.choice(dinner_meals) if dinner_meals else meals[2] if len(meals) > 2 else None
-    snack = random.choice(snack_meals) if snack_meals else meals[3] if len(meals) > 3 else None
+    # Select meals serially (in order) with user-specific offset
+    breakfast = breakfast_meals[counter % len(breakfast_meals)] if breakfast_meals else meals[counter % len(meals)] if meals else None
+    lunch = lunch_meals[counter % len(lunch_meals)] if lunch_meals else meals[(counter + 1) % len(meals)] if len(meals) > 1 else None
+    dinner = dinner_meals[counter % len(dinner_meals)] if dinner_meals else meals[(counter + 2) % len(meals)] if len(meals) > 2 else None
+    snack = snack_meals[counter % len(snack_meals)] if snack_meals else meals[(counter + 3) % len(meals)] if len(meals) > 3 else None
+    
+    # Increment counter for next time
+    user_meal_counter[user_id] = (counter + 1) % 1000  # Reset after 1000 meals
     
     # Simple age-based tone
     if age < 25:
@@ -260,7 +270,7 @@ async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) 
                 meals = load_meal_data_from_csv(diet_type=diet, max_meals=20)
         
         # Format the response (minimal AI work)
-        meal_plan = format_meal_plan(meals, name, age, diet, state)
+        meal_plan = format_meal_plan(meals, name, age, diet, state, user_id)
         
         # Save to Firebase if available
         if db:
