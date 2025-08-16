@@ -11,6 +11,7 @@ import json
 import random
 import os
 import re
+import csv
 from typing import Dict, Any, Optional, List
 from urllib.parse import quote
 from pathlib import Path
@@ -40,7 +41,7 @@ except ImportError:
     FIREBASE_AVAILABLE = False
     print("\u26A0\uFE0F Firebase not available - install with: pip install firebase-admin")
 
-# AI Meal Generator imports
+# AI Meal Generator imports (CSV-based)
 try:
     from ai_meal_generator import generate_ai_meal_plan, get_fallback_meal_message
     AI_AVAILABLE = True
@@ -60,6 +61,16 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 FIREBASE_CREDENTIALS_PATH = os.getenv('FIREBASE_CREDENTIALS_PATH', 'firebase-credentials.json')
 FIREBASE_CREDENTIALS_JSON = os.getenv('FIREBASE_CREDENTIALS_JSON')
 
+# Security configuration - Updated to include all diet types used in the app
+ALLOWED_DIET_TYPES = {
+    'vegetarian', 'veg', 'non-vegetarian', 'non-veg', 'vegan', 
+    'keto', 'eggitarian', 'jain', 'mixed', 'paleo', 'mediterranean', 
+    'dash', 'low-carb', 'high-protein', 'balanced'
+}
+ALLOWED_MEAL_TYPES = {'breakfast', 'lunch', 'dinner', 'snack', 'morning snack', 'evening snack'}
+MAX_MEALS_PER_REQUEST = 50
+MAX_FILE_SIZE_MB = 10
+
 # Conversation states
 NAME, AGE, GENDER, STATE, DIET_TYPE, MEDICAL_CONDITION, ACTIVITY_LEVEL, MEAL_PLAN, WEEK_PLAN, GROCERY_LIST, RATING, GROCERY_MANAGE, CART, PROFILE, INGREDIENTS, MEAL_TYPE, LOG_MEAL_FOLLOWED, LOG_MEAL_SKIPPED, LOG_MEAL_EXTRA, LOG_MEAL_CUSTOM = range(20)
 
@@ -69,6 +80,7 @@ user_data_cache: Dict[int, Dict[str, Any]] = {}
 grocery_lists_cache: Dict[int, List[str]] = {}
 user_cart_cache: Dict[int, set] = {}
 user_streaks_cache: Dict[int, Dict[str, Any]] = {}
+meal_data_cache: Dict[str, List[Dict[str, Any]]] = {}
 
 # Rate limiting data
 user_rate_limits: Dict[int, Dict[str, Any]] = {}
@@ -100,6 +112,36 @@ if FIREBASE_AVAILABLE:
         db = None
 else:
     db = None
+
+# Missing function fixes
+def get_firebase_db():
+    """Get Firebase database instance."""
+    return db if FIREBASE_AVAILABLE else None
+
+async def create_test_data():
+    """Create test data for Firebase demonstration."""
+    try:
+        if FIREBASE_AVAILABLE and db:
+            # Create test user data
+            test_user_id = "test_user_123"
+            test_data = {
+                "name": "Test User",
+                "age": 25,
+                "diet": "vegetarian",
+                "state": "maharashtra",
+                "gender": "male",
+                "medical": "none",
+                "activity": "active"
+            }
+            await save_user_profile(int(test_user_id), test_data)
+            logger.info("✅ Test data created successfully")
+            return True
+        else:
+            logger.warning("⚠️ Firebase not available for test data creation")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Error creating test data: {e}")
+        return False
 
 # Input validation functions
 def sanitize_input(text: str, max_length: int = 200) -> str:
@@ -145,17 +187,26 @@ def validate_age(age_text: str) -> Optional[int]:
 
 # Cache management functions
 def cleanup_cache(cache: Dict, max_size: int = MAX_CACHE_SIZE):
-    """Clean up cache if it exceeds maximum size."""
-    if len(cache) > max_size:
-        # Remove oldest entries (simple FIFO)
-        keys_to_remove = list(cache.keys())[:len(cache) - max_size]
-        for key in keys_to_remove:
-            del cache[key]
-        logger.info(f"Cleaned up cache, removed {len(keys_to_remove)} entries")
+    """Clean up cache if it exceeds maximum size with improved performance."""
+    try:
+        if len(cache) > max_size:
+            # Remove oldest entries (simple FIFO)
+            keys_to_remove = list(cache.keys())[:len(cache) - max_size + 10]  # Keep some buffer
+            for key in keys_to_remove:
+                del cache[key]
+            logger.info(f"Cleaned up cache, removed {len(keys_to_remove)} entries")
+    except Exception as e:
+        logger.error(f"Error during cache cleanup: {e}")
+        # Fallback: clear cache if cleanup fails
+        try:
+            cache.clear()
+            logger.warning("Cache cleared due to cleanup error")
+        except Exception as clear_error:
+            logger.error(f"Failed to clear cache: {clear_error}")
 
 # Firebase helper functions with proper error handling
 async def save_user_profile(user_id: int, profile_data: Dict[str, Any]) -> bool:
-    """Save user profile to Firebase with proper error handling."""
+    """Save user profile to Firebase with proper error handling and retry mechanism."""
     # Sanitize profile data
     sanitized_profile = {}
     for key, value in profile_data.items():
@@ -164,24 +215,30 @@ async def save_user_profile(user_id: int, profile_data: Dict[str, Any]) -> bool:
         else:
             sanitized_profile[key] = value
     
-    # Update cache
+    # Update cache immediately for better performance
     user_data_cache[user_id] = sanitized_profile.copy()
     cleanup_cache(user_data_cache)
     
-    # Save to Firebase if available
+    # Save to Firebase if available with retry mechanism
     if FIREBASE_AVAILABLE and db:
-        try:
-            doc_ref = db.collection('users').document(str(user_id))
-            doc_ref.set({
-                'profile': sanitized_profile,
-                'created_at': firestore.SERVER_TIMESTAMP,
-                'updated_at': firestore.SERVER_TIMESTAMP
-            }, merge=True)
-            logger.info(f"Profile saved to Firebase for user {user_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving user profile to Firebase: {e}")
-            return False
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                doc_ref = db.collection('users').document(str(user_id))
+                doc_ref.set({
+                    'profile': sanitized_profile,
+                    'created_at': firestore.SERVER_TIMESTAMP,
+                    'updated_at': firestore.SERVER_TIMESTAMP
+                }, merge=True)
+                logger.info(f"Profile saved to Firebase for user {user_id} (attempt {attempt + 1})")
+                return True
+            except Exception as e:
+                logger.error(f"Error saving user profile to Firebase (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)  # Wait before retry
+                else:
+                    logger.error(f"Failed to save profile to Firebase after {max_retries} attempts")
+                    return False
     else:
         logger.warning(f"Firebase not available - profile saved to cache only for user {user_id}")
         return False
@@ -440,14 +497,207 @@ async def get_user_streak(user_id: int) -> Dict[str, Any]:
     cleanup_cache(user_streaks_cache)
     return default_streak
 
+def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_meals: int = MAX_MEALS_PER_REQUEST) -> List[Dict[str, Any]]:
+    """
+    Load meal data from CSV file with enhanced security measures and filtering.
+    
+    Args:
+        diet_type: Filter by diet type (optional)
+        meal_type: Filter by meal type (optional)
+        max_meals: Maximum number of meals to return (security limit)
+        
+    Returns:
+        List of meal dictionaries
+    """
+    try:
+        # Security: Check file size
+        csv_path = Path("all_mealplans_merged.csv")
+        if not csv_path.exists():
+            logger.error("CSV file not found: all_mealplans_merged.csv")
+            return get_fallback_meal_data("general")
+        
+        file_size_mb = csv_path.stat().st_size / (1024 * 1024)
+        if file_size_mb > MAX_FILE_SIZE_MB:
+            logger.error(f"CSV file too large: {file_size_mb:.2f}MB (max: {MAX_FILE_SIZE_MB}MB)")
+            return get_fallback_meal_data("general")
+        
+        # Security: Validate input parameters
+        if diet_type and diet_type.lower() not in ALLOWED_DIET_TYPES:
+            logger.warning(f"Invalid diet type: {diet_type}")
+            diet_type = None
+        
+        if meal_type and meal_type.lower() not in ALLOWED_MEAL_TYPES:
+            logger.warning(f"Invalid meal type: {meal_type}")
+            meal_type = None
+        
+        if max_meals > MAX_MEALS_PER_REQUEST:
+            max_meals = MAX_MEALS_PER_REQUEST
+            logger.warning(f"Max meals limited to {MAX_MEALS_PER_REQUEST}")
+        
+        # Check cache first
+        cache_key = f"{diet_type}_{meal_type}_{max_meals}"
+        if cache_key in meal_data_cache:
+            logger.info(f"Returning cached meal data for key: {cache_key}")
+            return meal_data_cache[cache_key]
+        
+        meals = []
+        meals_found = 0
+        invalid_rows = 0
+        
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as file:
+                reader = csv.DictReader(file)
+                
+                for row_num, row in enumerate(reader, 1):
+                    # Security: Limit number of meals processed
+                    if meals_found >= max_meals:
+                        break
+                    
+                    # Security: Validate row data
+                    if not validate_csv_row(row):
+                        invalid_rows += 1
+                        if invalid_rows > 100:  # Stop if too many invalid rows
+                            logger.error("Too many invalid rows in CSV, stopping processing")
+                            break
+                        continue
+                    
+                    # Apply filters
+                    if diet_type and row.get('Diet Type', '').lower() != diet_type.lower():
+                        continue
+                    
+                    if meal_type and row.get('Meal', '').lower() != meal_type.lower():
+                        continue
+                    
+                    # Convert CSV row to standard meal format
+                    meal = convert_csv_row_to_meal(row)
+                    if meal:
+                        meals.append(meal)
+                        meals_found += 1
+                        
+        except UnicodeDecodeError:
+            logger.error("CSV file encoding error, trying with different encoding")
+            try:
+                with open(csv_path, 'r', encoding='latin-1') as file:
+                    reader = csv.DictReader(file)
+                    # Process with latin-1 encoding
+                    for row in reader:
+                        if meals_found >= max_meals:
+                            break
+                        if validate_csv_row(row):
+                            meal = convert_csv_row_to_meal(row)
+                            if meal:
+                                meals.append(meal)
+                                meals_found += 1
+            except Exception as e:
+                logger.error(f"Failed to read CSV with latin-1 encoding: {e}")
+        
+        # Cache the results
+        if len(meals) > 0:
+            meal_data_cache[cache_key] = meals
+            # Clean cache if too large
+            if len(meal_data_cache) > MAX_CACHE_SIZE:
+                cleanup_cache(meal_data_cache)
+        
+        logger.info(f"Loaded {len(meals)} meals from CSV (diet: {diet_type}, meal: {meal_type}, invalid rows: {invalid_rows})")
+        return meals if meals else get_fallback_meal_data("general")
+        
+    except Exception as e:
+        logger.error(f"Error loading meal data from CSV: {e}")
+        return get_fallback_meal_data("general")
+
+def validate_csv_row(row: Dict[str, str]) -> bool:
+    """Validate CSV row data for security and data integrity."""
+    try:
+        # Check required fields
+        required_fields = ['Diet Type', 'Meal', 'Dish Combo', 'Ingredients (per serving)', 'Calories (kcal)']
+        for field in required_fields:
+            if not row.get(field) or not row[field].strip():
+                return False
+        
+        # Security: Check for suspicious content
+        suspicious_patterns = [
+            r'<script', r'javascript:', r'data:', r'vbscript:', r'onload=',
+            r'<iframe', r'<object', r'<embed', r'<form', r'<input'
+        ]
+        
+        for field, value in row.items():
+            if isinstance(value, str):
+                for pattern in suspicious_patterns:
+                    if re.search(pattern, value, re.IGNORECASE):
+                        logger.warning(f"Suspicious content found in CSV: {pattern}")
+                        return False
+        
+        # Validate numeric fields
+        try:
+            calories = float(row.get('Calories (kcal)', '0'))
+            if calories < 0 or calories > 2000:  # Reasonable calorie range
+                return False
+        except (ValueError, TypeError):
+            return False
+        
+        # Validate string lengths
+        for field, value in row.items():
+            if isinstance(value, str) and len(value) > 1000:  # Max length per field
+                return False
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error validating CSV row: {e}")
+        return False
+
+def convert_csv_row_to_meal(row: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """Convert CSV row to standard meal format."""
+    try:
+        # Parse ingredients
+        ingredients_str = row.get('Ingredients (per serving)', '')
+        ingredients = [ing.strip() for ing in ingredients_str.split(',') if ing.strip()]
+        
+        # Parse calories
+        calories = float(row.get('Calories (kcal)', '200'))
+        
+        # Determine calorie level
+        if calories < 200:
+            calorie_level = "low"
+        elif calories < 500:
+            calorie_level = "medium"
+        else:
+            calorie_level = "high"
+        
+        # Create meal object
+        meal = {
+            "Food Item": row.get('Dish Combo', '').strip(),
+            "Ingredients": ingredients,
+            "approx_calories": calories,
+            "Health Impact": row.get('Healthy Tag', 'Good for health'),
+            "Calorie Level": calorie_level,
+            "Category": row.get('Meal', 'General'),
+            "Region": "India",  # Default region
+            "SpecialNote": f"Diet: {row.get('Diet Type', 'General')}",
+            "Carbs": float(row.get('Carbs (g)', '0')),
+            "Protein": float(row.get('Protein (g)', '0')),
+            "Fat": float(row.get('Fat (g)', '0'))
+        }
+        
+        return meal
+        
+    except Exception as e:
+        logger.error(f"Error converting CSV row to meal: {e}")
+        return None
+
 def load_meal_data_from_json(state: str) -> List[Dict[str, Any]]:
     """Load meal data from JSON file for the given state with fallback."""
     try:
-        # Handle the specific filename for Maharashtra
+        # Handle the specific filename for Maharashtra - use CSV instead
         if state.lower() == "maharashtra":
-            filename = "maharastra.json"
+            logger.info(f"Redirecting Maharashtra request to CSV-based loading")
+            return load_meal_data_from_csv()
+        
+        # Handle other states with their JSON files
         elif state.lower() == "andhra":
             filename = "andhra_dishes.json"
+        elif state.lower() == "karnataka":
+            filename = "karnataka.json"
         else:
             filename = f"{state.lower()}.json"
         
@@ -484,7 +734,7 @@ def load_meal_data_from_json(state: str) -> List[Dict[str, Any]]:
                                     }
                                     meals.append(converted_meal)
         
-        # Handle existing simple format (Karnataka, Maharashtra)
+        # Handle existing simple format (Karnataka)
         elif isinstance(data, list):
             for item in data:
                 if isinstance(item, dict) and "Items" in item:
@@ -570,7 +820,7 @@ def get_fallback_meal_data(state: str) -> List[Dict[str, Any]]:
     return fallback_meals
 
 def check_rate_limit(user_id: int) -> bool:
-    """Check if user has exceeded rate limit."""
+    """Check if user has exceeded rate limit with improved performance."""
     now = datetime.now()
     
     if user_id not in user_rate_limits:
@@ -586,50 +836,62 @@ def check_rate_limit(user_id: int) -> bool:
         user_limit['requests'] = []
         user_limit['last_reset'] = now
     
-    # Check current requests
-    current_requests = [req for req in user_limit['requests'] 
-                       if (now - req).total_seconds() <= RATE_LIMIT_WINDOW]
+    # Check current requests with improved performance
+    window_start = now - timedelta(seconds=RATE_LIMIT_WINDOW)
+    current_requests = [req for req in user_limit['requests'] if req > window_start]
     
     if len(current_requests) >= MAX_REQUESTS_PER_WINDOW:
         return False
     
     # Add current request
     user_limit['requests'].append(now)
+    
+    # Clean up old requests to prevent memory buildup
+    if len(user_limit['requests']) > MAX_REQUESTS_PER_WINDOW * 2:
+        user_limit['requests'] = current_requests
+    
     return True
 
 def filter_meals_by_preferences(meals: List[Dict[str, Any]], diet_type: str, medical_condition: str) -> List[Dict[str, Any]]:
-    """Filter meals based on user preferences."""
+    """Filter meals based on user preferences with improved diet type handling."""
     filtered_meals = []
+    
+    # Normalize diet type for consistent handling
+    diet_type_lower = diet_type.lower()
+    if diet_type_lower in ['veg', 'vegetarian']:
+        diet_type_lower = 'vegetarian'
+    elif diet_type_lower in ['non-veg', 'non-vegetarian']:
+        diet_type_lower = 'non-vegetarian'
     
     for meal in meals:
         if not isinstance(meal, dict) or "Food Item" not in meal:
             continue
             
         # Check diet compatibility
-        if diet_type.lower() == "jain":
+        if diet_type_lower == "jain":
             # Check for onion, garlic, potato, eggs, meat, fish in ingredients
             if any(item in str(meal.get("Ingredients", [])).lower() for item in ["onion", "garlic", "potato", "egg", "chicken", "fish", "meat", "prawn"]):
                 continue
             # Also check SpecialNote for Andhra Pradesh dishes
             if meal.get("SpecialNote", "").lower() == "no onion, garlic":
                 continue
-        elif diet_type.lower() == "vegan":
+        elif diet_type_lower == "vegan":
             # Check for non-vegan ingredients
             if any(item in str(meal.get("Ingredients", [])).lower() for item in ["milk", "ghee", "curd", "egg", "meat", "fish", "chicken"]):
                 continue
             # Also check SpecialNote for Andhra Pradesh dishes
             if meal.get("SpecialNote", "").lower() == "vegan":
                 continue
-        elif diet_type.lower() == "non-veg":
+        elif diet_type_lower == "non-vegetarian":
             # For non-vegetarian, prefer meals with meat/fish
             if any(item in str(meal.get("Ingredients", [])).lower() for item in ["chicken", "fish", "meat", "prawn", "egg"]):
                 filtered_meals.append(meal)
                 continue
-        elif diet_type.lower() == "veg":
+        elif diet_type_lower == "vegetarian":
             # For vegetarian, avoid meat/fish/eggs
             if any(item in str(meal.get("Ingredients", [])).lower() for item in ["chicken", "fish", "meat", "prawn", "egg"]):
                 continue
-        elif diet_type.lower() == "eggitarian":
+        elif diet_type_lower == "eggitarian":
             # For eggitarian, allow eggs but avoid meat/fish
             if any(item in str(meal.get("Ingredients", [])).lower() for item in ["chicken", "fish", "meat", "prawn"]):
                 continue
@@ -637,6 +899,17 @@ def filter_meals_by_preferences(meals: List[Dict[str, Any]], diet_type: str, med
             if "egg" in str(meal.get("Ingredients", [])).lower():
                 filtered_meals.append(meal)
                 continue
+        elif diet_type_lower == "keto":
+            # For keto, prefer low-carb, high-fat meals
+            if meal.get("Carbs", 0) > 20:  # High carb meals
+                continue
+            # Prefer meals with healthy fats
+            if meal.get("Fat", 0) > 10:
+                filtered_meals.append(meal)
+                continue
+        elif diet_type_lower == "mixed":
+            # Mixed diet accepts all meals
+            pass
             
         # Check medical condition compatibility
         if medical_condition.lower() == "diabetes":
@@ -911,6 +1184,7 @@ async def state_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         [InlineKeyboardButton("🍗 Non-Vegetarian", callback_data="diet_non-veg")],
         [InlineKeyboardButton("🕉️ Jain", callback_data="diet_jain")],
         [InlineKeyboardButton("🌱 Vegan", callback_data="diet_vegan")],
+        [InlineKeyboardButton("🥑 Keto", callback_data="diet_keto")],
         [InlineKeyboardButton("🍽️ Mixed (Everything)", callback_data="diet_mixed")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1267,14 +1541,24 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 parse_mode='Markdown'
             )
             
-            # Generate AI meal plan
+            # Generate AI meal plan (using CSV data)
             ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db)
             
             if ai_meal_plan:
-                # Create action buttons for AI meal plan
+                # Create action buttons for AI meal plan with actual meal names
+                # Get the first meal name for rating
+                first_meal_name = "AI Generated Meal Plan"
+                if meal_names and len(meal_names) > 0:
+                    first_meal_name = meal_names[0].get('name', 'AI Generated Meal Plan')
+                
+                # Clean meal name for callback data (remove special characters)
+                clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
+                if not clean_meal_name:
+                    clean_meal_name = "AI_Generated_Meal"
+                
                 keyboard = [
-                    [InlineKeyboardButton("👍 Like", callback_data="rate_like_ai_generated")],
-                    [InlineKeyboardButton("👎 Dislike", callback_data="rate_dislike_ai_generated")],
+                    [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}")],
+                    [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")],
                     [InlineKeyboardButton("📝 Log Today's Meals", callback_data="log_meal")],
                     [InlineKeyboardButton("🛒 Grocery List", callback_data="grocery_list")],
                     [InlineKeyboardButton("🚚 Order on Zepto", callback_data="order_zepto")],
@@ -1284,28 +1568,32 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Cache the suggested meals for logging
-                # Simple and reliable meal extraction for AI responses
+                # Enhanced meal extraction for AI responses
                 meal_names = []
                 
-                # Extract meal names using simple regex patterns
-                import re
-                
-                # Look for meal patterns in the AI response
+                # Extract meal names using improved regex patterns
                 meal_patterns = [
                     r'🌅\s*(.*?)\s*-\s*\d+',  # Breakfast pattern
                     r'☀️\s*(.*?)\s*-\s*\d+',  # Lunch pattern  
                     r'🌙\s*(.*?)\s*-\s*\d+',  # Dinner pattern
                     r'🍎\s*(.*?)\s*-\s*\d+',  # Snack pattern
+                    r'🌅\s*(.*?)(?:\n|$)',    # Breakfast without calories
+                    r'☀️\s*(.*?)(?:\n|$)',    # Lunch without calories
+                    r'🌙\s*(.*?)(?:\n|$)',    # Dinner without calories
+                    r'🍎\s*(.*?)(?:\n|$)',    # Snack without calories
                 ]
                 
                 for pattern in meal_patterns:
-                    matches = re.findall(pattern, ai_meal_plan)
+                    matches = re.findall(pattern, ai_meal_plan, re.MULTILINE)
                     for match in matches:
                         meal_name = match.strip()
-                        if meal_name and len(meal_name) > 2:
-                            meal_names.append({'name': meal_name})
+                        if meal_name and len(meal_name) > 2 and len(meal_name) < 50:
+                            # Clean meal name
+                            meal_name = re.sub(r'[^\w\s\-]', '', meal_name).strip()
+                            if meal_name:
+                                meal_names.append({'name': meal_name})
                 
-                # If regex extraction fails, use simple line parsing
+                # If regex extraction fails, use enhanced line parsing
                 if not meal_names:
                     lines = ai_meal_plan.split('\n')
                     for line in lines:
@@ -1324,8 +1612,11 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                                         else:
                                             meal_name = meal_text.split()[0] if meal_text.split() else ''
                                         
-                                        if meal_name and len(meal_name) > 2:
-                                            meal_names.append({'name': meal_name})
+                                        # Clean and validate meal name
+                                        if meal_name and len(meal_name) > 2 and len(meal_name) < 50:
+                                            meal_name = re.sub(r'[^\w\s\-]', '', meal_name).strip()
+                                            if meal_name:
+                                                meal_names.append({'name': meal_name})
                                     break
                 
                 # Final fallback: create default meal names
@@ -1346,18 +1637,19 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 logger.info(f"✅ AI meal plan sent to user {user_id}")
                 return MEAL_PLAN
             else:
-                logger.warning(f"⚠️ AI meal plan failed for user {user_id}, using JSON fallback")
+                logger.warning(f"⚠️ AI meal plan failed for user {user_id}, using fallback")
                 
         except Exception as e:
             logger.error(f"❌ Error in AI meal generation: {e}")
-            # Continue with JSON fallback
+            # Continue with fallback
     
-    # 🔄 SECONDARY FALLBACK: Use JSON-based logic only if AI fails
-    # Load meals from JSON
-    meals = load_meal_data_from_json(user_data['state'])
+    # 🔄 SECONDARY FALLBACK: Use CSV-based logic only if AI fails
+    # Load meals from CSV based on user's diet
+    user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+    meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=30)
     if not meals:
         await query.edit_message_text(
-            f"❌ No meal data available for {user_data['state'].title()}.\n\n"
+            f"❌ No meal data available for {user_data['diet'].title()} diet.\n\n"
             "Please try again later or contact support.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
@@ -1366,7 +1658,10 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ConversationHandler.END
     
     # Filter meals based on preferences
-    filtered_meals = filter_meals_by_preferences(meals, user_data['diet'], user_data['medical'])
+    if user_data.get('medical'):
+        filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
+    else:
+        filtered_meals = meals[:10]  # Take first 10 meals if no medical conditions
     
     if len(filtered_meals) < 4:
         # If not enough filtered meals, use all meals
@@ -1413,10 +1708,18 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     meal_message += f"**Total Calories:** ~{total_calories}\n\n"
     meal_message += "💡 *All meals are picked just for you based on your vibe and health needs*"
     
-    # Create action buttons with ratings
+    # Create action buttons with ratings for the first meal
+    first_meal_name = selected_meals[0].get('Food Item', '') if selected_meals else 'Meal Plan'
+    
+    # Clean meal name for callback data (remove special characters)
+    import re
+    clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
+    if not clean_meal_name:
+        clean_meal_name = "Meal_Plan"
+    
     keyboard = [
-        [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{selected_meals[0].get('Food Item', '')}")],
-        [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{selected_meals[0].get('Food Item', '')}")],
+        [InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}")],
+        [InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")],
         [InlineKeyboardButton("📝 Log Today's Meals", callback_data="log_meal")],
         [InlineKeyboardButton("🛒 Grocery List", callback_data="grocery_list")],
         [InlineKeyboardButton("🚚 Order on Zepto", callback_data="order_zepto")],
@@ -1456,18 +1759,23 @@ async def handle_weekly_plan(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return ConversationHandler.END
     
-    # Load and filter meals
-    meals = load_meal_data_from_json(user_data['state'])
+    # Load and filter meals from CSV
+    user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+    meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=50)
     if not meals:
         await query.edit_message_text(
-            f"❌ No meal data available for {user_data['state'].title()}.",
+            f"❌ No meal data available for {user_data['diet'].title()} diet.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🏠 Start Over", callback_data="start_over")
             ]])
         )
         return ConversationHandler.END
     
-    filtered_meals = filter_meals_by_preferences(meals, user_data['diet'], user_data['medical'])
+    # Filter meals based on preferences
+    if user_data.get('medical'):
+        filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
+    else:
+        filtered_meals = meals[:20]  # Take first 20 meals if no medical conditions
     
     # Generate weekly plan
     weekly_plan = generate_weekly_plan(filtered_meals, user_data)
@@ -1558,16 +1866,29 @@ async def handle_meal_rating(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = query.from_user.id
     rating_data = query.data.split("_")
     
-    if len(rating_data) < 3:
+    if len(rating_data) < 2:
         return MEAL_PLAN
     
     rating_type = rating_data[1]  # like or dislike
-    meal_name = "_".join(rating_data[2:])  # meal name might contain underscores
+    
+    # Handle different rating formats
+    if len(rating_data) >= 3:
+        # Format: rate_like_meal_name or rate_dislike_meal_name
+        meal_name = "_".join(rating_data[2:])  # meal name might contain underscores
+    else:
+        # Format: rate_like_ai_generated or rate_dislike_ai_generated
+        meal_name = "AI Generated Meal Plan"
     
     rating_value = 1 if rating_type == "like" else 0
     
+    # Log the rating attempt
+    logger.info(f"🔧 Rating attempt by user {user_id}: {rating_type} for meal '{meal_name}'")
+    
     # Save rating to Firebase
     rating_saved = await save_meal_rating(user_id, meal_name, rating_value)
+    
+    # Log the result
+    logger.info(f"✅ Rating saved for user {user_id}: {rating_type} for '{meal_name}' - Firebase: {rating_saved}")
     
     # Show confirmation
     emoji = "👍" if rating_type == "like" else "👎"
@@ -1612,11 +1933,12 @@ async def show_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
             return ConversationHandler.END
     
-    # Load meals from JSON
-    meals = load_meal_data_from_json(user_data['state'])
+    # Load meals from CSV
+    user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+    meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=30)
     if not meals:
         await query.edit_message_text(
-            f"❌ No meal data available for {user_data['state'].title()}.",
+            f"❌ No meal data available for {user_data['diet'].title()} diet.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🏠 Start Over", callback_data="start_over")
             ]])
@@ -1624,25 +1946,36 @@ async def show_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return ConversationHandler.END
     
     # Filter meals based on preferences
-    filtered_meals = filter_meals_by_preferences(meals, user_data['diet'], user_data['medical'])
+    if user_data.get('medical'):
+        filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
+    else:
+        filtered_meals = meals[:10]  # Take first 10 meals if no medical conditions
     
     if len(filtered_meals) < 4:
         filtered_meals = meals[:4]
     
-    # Extract ingredients from selected meals
+    # Extract ingredients from selected meals - ONLY from meal data
     all_ingredients = set()
     for meal in filtered_meals[:4]:  # Take first 4 meals
         ingredients = meal.get('Ingredients', [])
         if isinstance(ingredients, list):
-            all_ingredients.update(ingredients)
+            # Clean and validate each ingredient
+            for ingredient in ingredients:
+                if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
+                    all_ingredients.add(ingredient.strip())
     
     # Convert to list and sort
     ingredients_list = sorted(list(all_ingredients))
     
-    # Add common ingredients if list is too short
-    if len(ingredients_list) < 5:
-        common_ingredients = ["Rice", "Oil", "Salt", "Spices", "Vegetables", "Onions", "Tomatoes", "Potatoes", "Carrots", "Capsicum"]
-        ingredients_list.extend([item for item in common_ingredients if item not in ingredients_list])
+    # If no ingredients found, try to get from more meals
+    if len(ingredients_list) < 3:
+        for meal in filtered_meals[4:8]:  # Try next 4 meals
+            ingredients = meal.get('Ingredients', [])
+            if isinstance(ingredients, list):
+                for ingredient in ingredients:
+                    if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
+                        all_ingredients.add(ingredient.strip())
+        ingredients_list = sorted(list(all_ingredients))
     
     # Get user's current grocery list from cache or Firebase
     user_grocery_list = await get_grocery_list(user_id)
@@ -1705,9 +2038,16 @@ async def manage_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     suggested_ingredients = []
     if user_data:
-        meals = load_meal_data_from_json(user_data['state'])
+        # Load meals based on user's diet type
+        user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+        meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=20)
         if meals:
-            filtered_meals = filter_meals_by_preferences(meals, user_data['diet'], user_data['medical'])
+            # Filter meals by medical conditions if any
+            if user_data.get('medical'):
+                filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
+            else:
+                filtered_meals = meals[:4]
+            
             if len(filtered_meals) < 4:
                 filtered_meals = meals[:4]
             
@@ -1760,15 +2100,22 @@ async def add_grocery_items(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = query.from_user.id
     
     # Get suggested ingredients
-    user_data = user_data_store.get(user_id)
+    user_data = user_data_cache.get(user_id)
     if not user_data:
         user_data = await get_user_profile(user_id)
     
     suggested_ingredients = []
     if user_data:
-        meals = load_meal_data_from_json(user_data['state'])
+        # Load meals based on user's diet type
+        user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+        meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=20)
         if meals:
-            filtered_meals = filter_meals_by_preferences(meals, user_data['diet'], user_data['medical'])
+            # Filter meals by medical conditions if any
+            if user_data.get('medical'):
+                filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
+            else:
+                filtered_meals = meals[:4]
+            
             if len(filtered_meals) < 4:
                 filtered_meals = meals[:4]
             
@@ -1786,7 +2133,7 @@ async def add_grocery_items(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     suggested_ingredients.sort()
     
     # Get user's current list to avoid duplicates
-    user_grocery_list = grocery_lists.get(user_id, [])
+    user_grocery_list = await get_grocery_list(user_id)
     available_items = [item for item in suggested_ingredients if item not in user_grocery_list]
     
     # Create add message
@@ -1829,7 +2176,7 @@ async def remove_grocery_items(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = query.from_user.id
     
     # Get user's current grocery list
-    user_grocery_list = grocery_lists.get(user_id, [])
+    user_grocery_list = await get_grocery_list(user_id)
     
     if not user_grocery_list:
         await query.edit_message_text(
@@ -2108,11 +2455,17 @@ async def order_on_zepto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     if ingredient.lower() in meal_name.lower():
                         all_ingredients.add(ingredient)
     
-    # If no ingredients found, fallback to JSON meals
+    # If no ingredients found, fallback to CSV meals
     if not all_ingredients:
-        meals = load_meal_data_from_json(user_data['state'])
+        user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+        meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=20)
         if meals:
-            filtered_meals = filter_meals_by_preferences(meals, user_data['diet'], user_data['medical'])
+            # Filter meals by medical conditions if any
+            if user_data.get('medical'):
+                filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
+            else:
+                filtered_meals = meals[:4]
+            
             if len(filtered_meals) < 4:
                 filtered_meals = meals[:4]
             
@@ -2440,6 +2793,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     # Rating system
     elif query.data.startswith("rate_"):
+        logger.info(f"🔧 Rating button clicked: {query.data}")
         return await handle_meal_rating(update, context)
     
     # Navigation
@@ -2522,7 +2876,7 @@ async def log_meal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if len(meal_name) > 30:
             meal_name = meal_name[:27] + "..."
         
-        keyboard.append([InlineKeyboardButton(f"⛔ {meal_name}", callback_data=f"skip_meal_{meal_name}")])
+        keyboard.append([InlineKeyboardButton(f"✅ {meal_name}", callback_data=f"follow_meal_{meal_name}")])
     
     keyboard.append([InlineKeyboardButton("✅ Done", callback_data="log_followed_done")])
     keyboard.append([InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")])
@@ -2614,10 +2968,28 @@ async def handle_log_meal_followed(update: Update, context: ContextTypes.DEFAULT
         meal_log["followed_meals"] = followed_meals
         context.user_data["meal_log"] = meal_log
         
-        # Update the button
-        await query.edit_message_reply_markup(
-            reply_markup=query.message.reply_markup
-        )
+        # Rebuild the keyboard with updated button states
+        last_meals = context.user_data.get("last_suggested_meals", [])
+        keyboard = []
+        for i, meal in enumerate(last_meals):
+            if isinstance(meal, dict):
+                meal_name = meal.get('name') or meal.get('Food Item', f'Meal {i+1}')
+            else:
+                meal_name = str(meal) if str(meal).strip() else f'Meal {i+1}'
+            
+            if len(meal_name) > 30:
+                meal_name = meal_name[:27] + "..."
+            
+            if meal_name in followed_meals:
+                keyboard.append([InlineKeyboardButton(f"✅ {meal_name}", callback_data=f"follow_meal_{meal_name}")])
+            else:
+                keyboard.append([InlineKeyboardButton(f"⛔ {meal_name}", callback_data=f"follow_meal_{meal_name}")])
+        
+        keyboard.append([InlineKeyboardButton("✅ Done", callback_data="log_followed_done")])
+        keyboard.append([InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
         
         return LOG_MEAL_FOLLOWED
 
@@ -2668,10 +3040,28 @@ async def handle_log_meal_skipped(update: Update, context: ContextTypes.DEFAULT_
         meal_log["skipped_meals"] = skipped_meals
         context.user_data["meal_log"] = meal_log
         
-        # Update the button
-        await query.edit_message_reply_markup(
-            reply_markup=query.message.reply_markup
-        )
+        # Rebuild the keyboard with updated button states
+        last_meals = context.user_data.get("last_suggested_meals", [])
+        keyboard = []
+        for i, meal in enumerate(last_meals):
+            if isinstance(meal, dict):
+                meal_name = meal.get('name') or meal.get('Food Item', f'Meal {i+1}')
+            else:
+                meal_name = str(meal) if str(meal).strip() else f'Meal {i+1}'
+            
+            if len(meal_name) > 30:
+                meal_name = meal_name[:27] + "..."
+            
+            if meal_name in skipped_meals:
+                keyboard.append([InlineKeyboardButton(f"✅ {meal_name}", callback_data=f"skip_meal_{meal_name}")])
+            else:
+                keyboard.append([InlineKeyboardButton(f"⛔ {meal_name}", callback_data=f"skip_meal_{meal_name}")])
+        
+        keyboard.append([InlineKeyboardButton("✅ Done", callback_data="log_skipped_done")])
+        keyboard.append([InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
         
         return LOG_MEAL_SKIPPED
 
@@ -2710,10 +3100,30 @@ async def handle_log_meal_extra(update: Update, context: ContextTypes.DEFAULT_TY
         meal_log["extra_items"] = extra_items
         context.user_data["meal_log"] = meal_log
         
-        # Update the button
-        await query.edit_message_reply_markup(
-            reply_markup=query.message.reply_markup
-        )
+        # Rebuild the keyboard with updated button states
+        keyboard = []
+        extra_items_list = [
+            ("🍔 Vada Pav", "extra_vada_pav"),
+            ("🍦 Ice Cream", "extra_ice_cream"),
+            ("🥨 Chips", "extra_chips"),
+            ("🍕 Pizza", "extra_pizza"),
+            ("🍰 Cake", "extra_cake"),
+            ("🍫 Chocolate", "extra_chocolate")
+        ]
+        
+        for item_text, item_data in extra_items_list:
+            item_name = item_data.replace("extra_", "").replace("_", " ").title()
+            if item_name in extra_items:
+                keyboard.append([InlineKeyboardButton(f"✅ {item_text}", callback_data=item_data)])
+            else:
+                keyboard.append([InlineKeyboardButton(f"⛔ {item_text}", callback_data=item_data)])
+        
+        keyboard.append([InlineKeyboardButton("➕ Add Custom", callback_data="add_custom_extra")])
+        keyboard.append([InlineKeyboardButton("✅ Done", callback_data="log_extra_done")])
+        keyboard.append([InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
         
         return LOG_MEAL_EXTRA
 
@@ -2791,29 +3201,27 @@ async def save_meal_log_and_show_confirmation(update: Update, context: ContextTy
     }
     
     # Save to Firebase
-    if FIREBASE_AVAILABLE:
+    if FIREBASE_AVAILABLE and db:
         try:
-            db = get_firebase_db()
-            if db:
-                # Save meal log
-                await db.collection('users').document(str(user_id)).collection('meal_logs').document(today).set(log_data)
-                
-                # Update total points
-                user_ref = db.collection('users').document(str(user_id))
-                user_doc = await user_ref.get()
-                
-                if user_doc.exists:
-                    current_points = user_doc.to_dict().get('total_points', 0)
-                    new_total = current_points + points_earned
-                    await user_ref.update({'total_points': new_total})
-                else:
-                    await user_ref.set({'total_points': points_earned})
-                
-                logger.info(f"✅ Meal log saved for user {user_id}, earned {points_earned} points")
+            # Save meal log
+            await db.collection('users').document(str(user_id)).collection('meal_logs').document(today).set(log_data)
+            
+            # Update total points
+            user_ref = db.collection('users').document(str(user_id))
+            user_doc = await user_ref.get()
+            
+            if user_doc.exists:
+                current_points = user_doc.to_dict().get('total_points', 0)
+                new_total = current_points + points_earned
+                await user_ref.update({'total_points': new_total})
             else:
-                logger.warning(f"⚠️ Firebase not available for user {user_id}")
+                await user_ref.set({'total_points': points_earned})
+            
+            logger.info(f"✅ Meal log saved for user {user_id}, earned {points_earned} points")
         except Exception as e:
             logger.error(f"❌ Error saving meal log: {e}")
+    else:
+        logger.warning(f"⚠️ Firebase not available for user {user_id}")
     
     # Show confirmation message
     await query.edit_message_text(
@@ -2829,110 +3237,124 @@ async def save_meal_log_and_show_confirmation(update: Update, context: ContextTy
     )
 
 def main() -> None:
-    """Start the bot."""
+    """Start the bot with comprehensive error handling."""
     
-    # 🔑 BOT TOKEN CONFIGURATION - Load from environment variable
-    if not BOT_TOKEN:
-        print("❌ ERROR: BOT_TOKEN environment variable not set!")
-        print("🔑 Please set your bot token in the .env file")
-        print("📝 Example: BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz")
-        print("📁 Copy env_example.txt to .env and add your token")
-        return
-    
-    # Validate bot token format
-    if not BOT_TOKEN.count(':') == 1 or len(BOT_TOKEN.split(':')) != 2:
-        print("❌ ERROR: Invalid bot token format!")
-        print("🔑 Token should be in format: 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz")
-        return
-    
-    # Create the Application and pass it your bot's token
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add conversation handler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            NAME: [
-                CallbackQueryHandler(button_handler),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)
-            ],
-            AGE: [
-                CallbackQueryHandler(button_handler),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_age)
-            ],
-            GENDER: [CallbackQueryHandler(button_handler)],
-            STATE: [CallbackQueryHandler(button_handler)],
-            DIET_TYPE: [CallbackQueryHandler(button_handler)],
-            MEDICAL_CONDITION: [
-                CallbackQueryHandler(button_handler),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_medical)
-            ],
-            ACTIVITY_LEVEL: [CallbackQueryHandler(button_handler)],
-            MEAL_PLAN: [CallbackQueryHandler(button_handler)],
-            WEEK_PLAN: [CallbackQueryHandler(button_handler)],
-            GROCERY_LIST: [CallbackQueryHandler(button_handler)],
-            RATING: [CallbackQueryHandler(button_handler)],
-            GROCERY_MANAGE: [CallbackQueryHandler(button_handler)],
-            CART: [CallbackQueryHandler(button_handler)],
-            PROFILE: [CallbackQueryHandler(button_handler)],
-            INGREDIENTS: [
-                CallbackQueryHandler(button_handler),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ingredients_input)
-            ],
-            MEAL_TYPE: [
-                CallbackQueryHandler(button_handler)
-            ],
-            LOG_MEAL_FOLLOWED: [
-                CallbackQueryHandler(button_handler)
-            ],
-            LOG_MEAL_SKIPPED: [
-                CallbackQueryHandler(button_handler)
-            ],
-            LOG_MEAL_EXTRA: [
-                CallbackQueryHandler(button_handler)
-            ],
-            LOG_MEAL_CUSTOM: [
-                CallbackQueryHandler(button_handler),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_log_meal_custom)
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=False,
-    )
-    
-    application.add_handler(conv_handler)
-    
-    # Add command handlers
-    application.add_handler(CommandHandler("logmeal", log_meal_command))
-    
-    # Run the bot until the user presses Ctrl-C
-    print("🤖 Nutrio Bot is starting...")
-    print("📝 Replace 'YOUR_BOT_TOKEN' with your actual Telegram bot token")
-    print("🚀 Run the bot with: python main.py")
-    print("📁 Make sure karnataka.json and maharastra.json are in the same folder")
-    print("🔥 Firebase integration available" if FIREBASE_AVAILABLE else "⚠️ Firebase not available - install firebase-admin")
-    
-    # Test Firebase connection if available
-    if FIREBASE_AVAILABLE:
-        print("🧪 Testing Firebase connection...")
-        try:
-            # Create test data for demonstration
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            test_data_result = loop.run_until_complete(create_test_data())
-            if test_data_result:
-                print("✅ Test data created! Check Firebase Console now!")
-            else:
-                print("❌ Failed to create test data")
-            
-            loop.close()
-        except Exception as e:
-            print(f"❌ Firebase test error: {e}")
-    
-    # Uncomment the line below when you have your bot token
-    application.run_polling()
+    try:
+        # 🔑 BOT TOKEN CONFIGURATION - Load from environment variable
+        if not BOT_TOKEN:
+            print("❌ ERROR: BOT_TOKEN environment variable not set!")
+            print("🔑 Please set your bot token in the .env file")
+            print("📝 Example: BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz")
+            print("📁 Copy env_example.txt to .env and add your token")
+            return
+        
+        # Validate bot token format
+        if not BOT_TOKEN.count(':') == 1 or len(BOT_TOKEN.split(':')) != 2:
+            print("❌ ERROR: Invalid bot token format!")
+            print("🔑 Token should be in format: 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz")
+            return
+        
+        # Create the Application and pass it your bot's token
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # Add conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler("start", start)],
+            states={
+                NAME: [
+                    CallbackQueryHandler(button_handler),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)
+                ],
+                AGE: [
+                    CallbackQueryHandler(button_handler),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_age)
+                ],
+                GENDER: [CallbackQueryHandler(button_handler)],
+                STATE: [CallbackQueryHandler(button_handler)],
+                DIET_TYPE: [CallbackQueryHandler(button_handler)],
+                MEDICAL_CONDITION: [
+                    CallbackQueryHandler(button_handler),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_medical)
+                ],
+                ACTIVITY_LEVEL: [CallbackQueryHandler(button_handler)],
+                MEAL_PLAN: [CallbackQueryHandler(button_handler)],
+                WEEK_PLAN: [CallbackQueryHandler(button_handler)],
+                GROCERY_LIST: [CallbackQueryHandler(button_handler)],
+                RATING: [CallbackQueryHandler(button_handler)],
+                GROCERY_MANAGE: [CallbackQueryHandler(button_handler)],
+                CART: [CallbackQueryHandler(button_handler)],
+                PROFILE: [CallbackQueryHandler(button_handler)],
+                INGREDIENTS: [
+                    CallbackQueryHandler(button_handler),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ingredients_input)
+                ],
+                MEAL_TYPE: [
+                    CallbackQueryHandler(button_handler)
+                ],
+                LOG_MEAL_FOLLOWED: [
+                    CallbackQueryHandler(button_handler)
+                ],
+                LOG_MEAL_SKIPPED: [
+                    CallbackQueryHandler(button_handler)
+                ],
+                LOG_MEAL_EXTRA: [
+                    CallbackQueryHandler(button_handler)
+                ],
+                LOG_MEAL_CUSTOM: [
+                    CallbackQueryHandler(button_handler),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_log_meal_custom)
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", cancel)],
+            per_message=False,
+        )
+        
+        application.add_handler(conv_handler)
+        
+        # Add command handlers
+        application.add_handler(CommandHandler("logmeal", log_meal_command))
+        
+        # Run the bot until the user presses Ctrl-C
+        print("🤖 Nutrio Bot is starting...")
+        print("📝 Bot token configured successfully")
+        print("🚀 Run the bot with: python main.py")
+        print("📁 Make sure all required files are in the same folder")
+        print("🔥 Firebase integration available" if FIREBASE_AVAILABLE else "⚠️ Firebase not available - install firebase-admin")
+        print("🤖 AI meal generator available" if AI_AVAILABLE else "⚠️ AI meal generator not available")
+        
+        # Test Firebase connection if available
+        if FIREBASE_AVAILABLE:
+            print("🧪 Testing Firebase connection...")
+            try:
+                # Create test data for demonstration
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                test_data_result = loop.run_until_complete(create_test_data())
+                if test_data_result:
+                    print("✅ Test data created! Check Firebase Console now!")
+                else:
+                    print("❌ Failed to create test data")
+                
+                loop.close()
+            except Exception as e:
+                print(f"❌ Firebase test error: {e}")
+        
+        # Start the bot with enhanced polling configuration
+        print("🚀 Starting bot polling...")
+        application.run_polling(
+            drop_pending_updates=True, 
+            allowed_updates=[],
+            close_loop=False,
+            stop_signals=None
+        )
+        
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user (Ctrl+C)")
+    except Exception as e:
+        print(f"❌ Critical error starting bot: {e}")
+        logger.error(f"Critical error in main function: {e}")
+        raise
 
 if __name__ == '__main__':
     main() 
