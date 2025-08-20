@@ -84,16 +84,33 @@ def get_fallback_meal_data() -> List[Dict[str, Any]]:
         }
     ]
 
-def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_meals: int = MAX_MEALS_PER_REQUEST) -> List[Dict[str, Any]]:
-    """Load meal data from CSV file - static version."""
+def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type: str = None, max_meals: int = MAX_MEALS_PER_REQUEST) -> List[Dict[str, Any]]:
+    """Load meal data from CSV files based on state - static version."""
     try:
-        csv_path = Path("all_mealplans_merged.csv")
+        # Determine which CSV file to load based on state
+        if state:
+            state_lower = state.lower()
+            if state_lower == "maharashtra":
+                csv_path = Path("maharastra.csv")
+            elif state_lower == "karnataka":
+                csv_path = Path("karnataka.csv")
+            elif state_lower == "andhra":
+                csv_path = Path("andhra.csv")
+            else:
+                # Default to maharashtra if state not recognized
+                csv_path = Path("maharastra.csv")
+                logger.warning(f"Unknown state '{state}', defaulting to maharashtra")
+        else:
+            # If no state specified, try to load from all CSV files
+            csv_path = Path("maharastra.csv")
+            logger.info("No state specified, defaulting to maharashtra.csv")
+        
         if not csv_path.exists():
-            logger.error("CSV file not found")
+            logger.error(f"CSV file not found: {csv_path}")
             return get_fallback_meal_data()
         
         # Check cache first
-        cache_key = f"{diet_type}_{meal_type}_{max_meals}"
+        cache_key = f"{state}_{diet_type}_{meal_type}_{max_meals}"
         if cache_key in meal_data_cache:
             return meal_data_cache[cache_key]
         
@@ -108,7 +125,7 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
                     break
                 
                 # Simple validation
-                if not row.get('Dish Combo') or not row.get('Diet Type'):
+                if not row.get('Dish Combo'):
                     continue
                 
                 # Apply filters
@@ -144,29 +161,9 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
 def load_meal_data_from_json(state: str) -> List[Dict[str, Any]]:
     """Load meal data from JSON files - static version."""
     try:
-        if state.lower() == "karnataka":
-            with open("karnataka.json", 'r', encoding='utf-8') as file:
-                data = json.load(file)
-                return data if isinstance(data, list) else []
-        
-        elif state.lower() == "andhra":
-            with open("andhra_dishes.json", 'r', encoding='utf-8') as file:
-                data = json.load(file)
-                # Flatten the nested structure
-                meals = []
-                for diet_type, diet_data in data.get('DietTypes', {}).items():
-                    for meal_category, meal_list in diet_data.items():
-                        for meal in meal_list:
-                            meals.append({
-                                'name': meal.get('Food Item', 'Unknown'),
-                                'calories': meal.get('Calories', 0),
-                                'ingredients': meal.get('Ingredients', []),
-                                'meal_type': meal_category,
-                                'diet_type': diet_type
-                            })
-                return meals
-        
-        return []
+        # Since we've moved to CSV files, redirect all requests to CSV loading
+        logger.info(f"Redirecting {state} request to CSV-based loading")
+        return load_meal_data_from_csv(state=state)
         
     except Exception as e:
         logger.error(f"Error loading JSON data for {state}: {e}")
@@ -273,13 +270,11 @@ async def generate_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> 
         elif diet == 'mixed':
             diet = 'Mixed'
         
-        # Load meals from static database
-        if state.lower() == "maharashtra":
-            meals = load_meal_data_from_csv(diet_type=diet, max_meals=20)
-        else:
+        # Load meals from static database based on state
+        meals = load_meal_data_from_csv(state=state, diet_type=diet, max_meals=20)
+        if not meals:
+            # Fallback to JSON for other states
             meals = load_meal_data_from_json(state)
-            if not meals:
-                meals = load_meal_data_from_csv(diet_type=diet, max_meals=20)
         
         # Format the response (no AI, just formatting)
         meal_plan = format_meal_plan(meals, name, age, diet, state, user_id)
@@ -355,8 +350,8 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
         # 🔥 STEP 1: Search ALL static files for perfect matches
         all_meals = []
         
-        # Load from CSV (Maharashtra)
-        csv_meals = load_meal_data_from_csv(diet_type=csv_diet_type, max_meals=100)
+        # Load from CSV based on state
+        csv_meals = load_meal_data_from_csv(state=state, diet_type=csv_diet_type, max_meals=100)
         all_meals.extend(csv_meals)
         
         # Load from JSON files (other states)
@@ -742,13 +737,11 @@ async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) 
         elif diet == 'non-veg':
             diet = 'non-vegetarian'
         
-        # Load meals from static database for context
-        if state.lower() == "maharashtra":
-            meals = load_meal_data_from_csv(diet_type=diet.title(), max_meals=20)
-        else:
+        # Load meals from static database for context based on state
+        meals = load_meal_data_from_csv(state=state, diet_type=diet.title(), max_meals=20)
+        if not meals:
+            # Fallback to JSON for other states
             meals = load_meal_data_from_json(state)
-            if not meals:
-                meals = load_meal_data_from_csv(diet_type=diet.title(), max_meals=20)
         
         # Prepare meal context for AI
         meal_context = []

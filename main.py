@@ -501,11 +501,12 @@ async def get_user_streak(user_id: int) -> Dict[str, Any]:
     cleanup_cache(user_streaks_cache)
     return default_streak
 
-def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_meals: int = MAX_MEALS_PER_REQUEST) -> List[Dict[str, Any]]:
+def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type: str = None, max_meals: int = MAX_MEALS_PER_REQUEST) -> List[Dict[str, Any]]:
     """
-    Load meal data from CSV file with enhanced security measures and filtering.
+    Load meal data from CSV files based on user's state with enhanced security measures and filtering.
     
     Args:
+        state: User's state (maharashtra, karnataka, andhra) - determines which CSV to load
         diet_type: Filter by diet type (optional)
         meal_type: Filter by meal type (optional)
         max_meals: Maximum number of meals to return (security limit)
@@ -514,16 +515,33 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
         List of meal dictionaries
     """
     try:
-        # Security: Check file size
-        csv_path = Path("all_mealplans_merged.csv")
-        if not csv_path.exists():
-            logger.error("CSV file not found: all_mealplans_merged.csv")
-            return get_fallback_meal_data("general")
+        # Determine which CSV file to load based on state
+        if state:
+            state_lower = state.lower()
+            if state_lower == "maharashtra":
+                csv_path = Path("maharastra.csv")
+            elif state_lower == "karnataka":
+                csv_path = Path("karnataka.csv")
+            elif state_lower == "andhra":
+                csv_path = Path("andhra.csv")
+            else:
+                # Default to maharashtra if state not recognized
+                csv_path = Path("maharastra.csv")
+                logger.warning(f"Unknown state '{state}', defaulting to maharashtra")
+        else:
+            # If no state specified, try to load from all CSV files
+            csv_path = Path("maharastra.csv")
+            logger.info("No state specified, defaulting to maharashtra.csv")
         
+        if not csv_path.exists():
+            logger.error(f"CSV file not found: {csv_path}")
+            return get_fallback_meal_data(state or "general")
+        
+        # Security: Check file size
         file_size_mb = csv_path.stat().st_size / (1024 * 1024)
         if file_size_mb > MAX_FILE_SIZE_MB:
             logger.error(f"CSV file too large: {file_size_mb:.2f}MB (max: {MAX_FILE_SIZE_MB}MB)")
-            return get_fallback_meal_data("general")
+            return get_fallback_meal_data(state or "general")
         
         # Security: Validate input parameters
         if diet_type and diet_type.lower() not in ALLOWED_DIET_TYPES:
@@ -539,7 +557,7 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
             logger.warning(f"Max meals limited to {MAX_MEALS_PER_REQUEST}")
         
         # Check cache first
-        cache_key = f"{diet_type}_{meal_type}_{max_meals}"
+        cache_key = f"{state}_{diet_type}_{meal_type}_{max_meals}"
         if cache_key in meal_data_cache:
             logger.info(f"Returning cached meal data for key: {cache_key}")
             return meal_data_cache[cache_key]
@@ -607,18 +625,18 @@ def load_meal_data_from_csv(diet_type: str = None, meal_type: str = None, max_me
             if len(meal_data_cache) > MAX_CACHE_SIZE:
                 cleanup_cache(meal_data_cache)
         
-        logger.info(f"Loaded {len(meals)} meals from CSV (diet: {diet_type}, meal: {meal_type}, invalid rows: {invalid_rows})")
-        return meals if meals else get_fallback_meal_data("general")
+        logger.info(f"Loaded {len(meals)} meals from CSV {csv_path} (state: {state}, diet: {diet_type}, meal: {meal_type}, invalid rows: {invalid_rows})")
+        return meals if meals else get_fallback_meal_data(state or "general")
         
     except Exception as e:
         logger.error(f"Error loading meal data from CSV: {e}")
-        return get_fallback_meal_data("general")
+        return get_fallback_meal_data(state or "general")
 
 def validate_csv_row(row: Dict[str, str]) -> bool:
     """Validate CSV row data for security and data integrity."""
     try:
-        # Check required fields
-        required_fields = ['Diet Type', 'Meal', 'Dish Combo', 'Ingredients (per serving)', 'Calories (kcal)']
+        # Check required fields - be more flexible with the new CSV structure
+        required_fields = ['Dish Combo']  # Only dish combo is absolutely required
         for field in required_fields:
             if not row.get(field) or not row[field].strip():
                 return False
@@ -636,13 +654,15 @@ def validate_csv_row(row: Dict[str, str]) -> bool:
                         logger.warning(f"Suspicious content found in CSV: {pattern}")
                         return False
         
-        # Validate numeric fields
-        try:
-            calories = float(row.get('Calories (kcal)', '0'))
-            if calories < 0 or calories > 2000:  # Reasonable calorie range
+        # Validate numeric fields if present
+        calories_str = row.get('Calories (kcal)', '')
+        if calories_str:
+            try:
+                calories = float(calories_str)
+                if calories < 0 or calories > 2000:  # Reasonable calorie range
+                    return False
+            except (ValueError, TypeError):
                 return False
-        except (ValueError, TypeError):
-            return False
         
         # Validate string lengths
         for field, value in row.items():
@@ -658,12 +678,27 @@ def validate_csv_row(row: Dict[str, str]) -> bool:
 def convert_csv_row_to_meal(row: Dict[str, str]) -> Optional[Dict[str, Any]]:
     """Convert CSV row to standard meal format."""
     try:
-        # Parse ingredients
+        # Parse ingredients - handle both comma-separated and other formats
         ingredients_str = row.get('Ingredients (per serving)', '')
-        ingredients = [ing.strip() for ing in ingredients_str.split(',') if ing.strip()]
+        if ingredients_str:
+            # Split by comma and clean up each ingredient
+            ingredients = []
+            for ing in ingredients_str.split(','):
+                ing_clean = ing.strip()
+                if ing_clean:
+                    # Remove common measurement units and quantities
+                    ing_clean = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg', '', ing_clean).strip()
+                    if ing_clean:
+                        ingredients.append(ing_clean)
+        else:
+            ingredients = []
         
-        # Parse calories
-        calories = float(row.get('Calories (kcal)', '200'))
+        # Parse calories - handle different formats
+        calories_str = row.get('Calories (kcal)', '200')
+        try:
+            calories = float(calories_str)
+        except (ValueError, TypeError):
+            calories = 200  # Default fallback
         
         # Determine calorie level
         if calories < 200:
@@ -673,7 +708,23 @@ def convert_csv_row_to_meal(row: Dict[str, str]) -> Optional[Dict[str, Any]]:
         else:
             calorie_level = "high"
         
-        # Create meal object
+        # Parse macronutrients
+        try:
+            carbs = float(row.get('Carbs (g)', '0'))
+        except (ValueError, TypeError):
+            carbs = 0
+        
+        try:
+            protein = float(row.get('Protein (g)', '0'))
+        except (ValueError, TypeError):
+            protein = 0
+        
+        try:
+            fat = float(row.get('Fat (g)', '0'))
+        except (ValueError, TypeError):
+            fat = 0
+        
+        # Create meal object with enhanced data
         meal = {
             "Food Item": row.get('Dish Combo', '').strip(),
             "Ingredients": ingredients,
@@ -683,9 +734,12 @@ def convert_csv_row_to_meal(row: Dict[str, str]) -> Optional[Dict[str, Any]]:
             "Category": row.get('Meal', 'General'),
             "Region": "India",  # Default region
             "SpecialNote": f"Diet: {row.get('Diet Type', 'General')}",
-            "Carbs": float(row.get('Carbs (g)', '0')),
-            "Protein": float(row.get('Protein (g)', '0')),
-            "Fat": float(row.get('Fat (g)', '0'))
+            "Carbs": carbs,
+            "Protein": protein,
+            "Fat": fat,
+            "Diet Type": row.get('Diet Type', 'General'),
+            "Day": row.get('Day', '1'),
+            "Meal": row.get('Meal', 'General')
         }
         
         return meal
@@ -694,77 +748,17 @@ def convert_csv_row_to_meal(row: Dict[str, str]) -> Optional[Dict[str, Any]]:
         logger.error(f"Error converting CSV row to meal: {e}")
         return None
 
-def load_meal_data_from_json(state: str) -> List[Dict[str, Any]]:
+def load_meal_data_from_json(state: str = None) -> List[Dict[str, Any]]:
     """Load meal data from JSON file for the given state with fallback."""
     try:
-        # Handle the specific filename for Maharashtra - use CSV instead
-        if state.lower() == "maharashtra":
-            logger.info(f"Redirecting Maharashtra request to CSV-based loading")
+        # Since we've moved to CSV files, redirect all requests to CSV loading
+        if state:
+            logger.info(f"Redirecting {state} request to CSV-based loading")
+            return load_meal_data_from_csv(state)
+        else:
+            logger.info("No state specified, using default CSV loading")
             return load_meal_data_from_csv()
         
-        # Handle other states with their JSON files
-        elif state.lower() == "andhra":
-            filename = "andhra_dishes.json"
-        elif state.lower() == "karnataka":
-            filename = "karnataka.json"
-        else:
-            filename = f"{state.lower()}.json"
-        
-        file_path = Path(filename)
-        
-        if not file_path.exists():
-            logger.error(f"File not found: {filename}")
-            # Return fallback data
-            return get_fallback_meal_data(state)
-        
-        with open(file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-            
-        meals = []
-        
-        # Handle Andhra Pradesh dishes format (complex nested structure)
-        if state.lower() == "andhra" and isinstance(data, dict) and "DietTypes" in data:
-            for diet_type, diet_data in data["DietTypes"].items():
-                if isinstance(diet_data, dict):
-                    for meal_category, meal_list in diet_data.items():
-                        if isinstance(meal_list, list):
-                            for meal in meal_list:
-                                if isinstance(meal, dict) and "DishName" in meal:
-                                    # Convert Andhra format to standard format
-                                    converted_meal = {
-                                        "Food Item": meal["DishName"],
-                                        "Ingredients": meal.get("MainIngredients", []),
-                                        "approx_calories": meal.get("Calories", 200),
-                                        "Health Impact": meal.get("HealthBenefits", "Good for health"),
-                                        "Calorie Level": "medium" if meal.get("Calories", 200) > 200 else "low",
-                                        "Category": meal.get("Category", "General"),
-                                        "Region": meal.get("Region", "Andhra Pradesh"),
-                                        "SpecialNote": meal.get("SpecialNote", "")
-                                    }
-                                    meals.append(converted_meal)
-        
-        # Handle existing simple format (Karnataka)
-        elif isinstance(data, list):
-            for item in data:
-                if isinstance(item, dict) and "Items" in item:
-                    meals.extend(item["Items"])
-                elif isinstance(item, dict) and "Food Item" in item:
-                    meals.append(item)
-        
-        # Validate meal data structure
-        validated_meals = []
-        for meal in meals:
-            if validate_meal_structure(meal):
-                validated_meals.append(meal)
-            else:
-                logger.warning(f"Invalid meal structure found: {meal.get('Food Item', 'Unknown')}")
-        
-        logger.info(f"Loaded {len(validated_meals)} valid meals from JSON for {state} from {filename}")
-        return validated_meals if validated_meals else get_fallback_meal_data(state)
-        
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error for {state}: {e}")
-        return get_fallback_meal_data(state)
     except Exception as e:
         logger.error(f"Error loading meal data for {state}: {e}")
         return get_fallback_meal_data(state)
@@ -1599,8 +1593,9 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         else:
             logger.warning(f"⚠️ AI meal plan failed for user {user_id}, using fallback")
             
-            # Fallback to static meal generation
+            # Fallback to static meal generation using CSV
             user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+            user_state = user_data.get('state', 'maharashtra').lower()
             
             # Normalize diet type for CSV matching
             diet_mapping = {
@@ -1616,7 +1611,8 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             }
             csv_diet_type = diet_mapping.get(user_diet, 'Vegetarian')
             
-            meals = load_meal_data_from_csv(diet_type=csv_diet_type, max_meals=30)
+            # Load meals from CSV based on user's state
+            meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, max_meals=30)
             
             if not meals:
                 await query.edit_message_text(
@@ -1797,12 +1793,13 @@ async def handle_weekly_plan(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return ConversationHandler.END
     
-    # Load and filter meals from CSV
+    # Load and filter meals from CSV based on user's state
     user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
-    meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=50)
+    user_state = user_data.get('state', 'maharashtra').lower()
+    meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=50)
     if not meals:
         await query.edit_message_text(
-            f"❌ No meal data available for {user_data['diet'].title()} diet.",
+            f"❌ No meal data available for {user_data['diet'].title()} diet in {user_data['state'].title()}.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🏠 Start Over", callback_data="start_over")
             ]])
@@ -1971,12 +1968,13 @@ async def show_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
             return ConversationHandler.END
     
-    # Load meals from CSV
+    # Load meals from CSV based on user's state
     user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
-    meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=30)
+    user_state = user_data.get('state', 'maharashtra').lower()
+    meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=30)
     if not meals:
         await query.edit_message_text(
-            f"❌ No meal data available for {user_data['diet'].title()} diet.",
+            f"❌ No meal data available for {user_data['diet'].title()} diet in {user_data['state'].title()}.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🏠 Start Over", callback_data="start_over")
             ]])
@@ -2076,9 +2074,10 @@ async def manage_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     suggested_ingredients = []
     if user_data:
-        # Load meals based on user's diet type
+        # Load meals based on user's diet type and state
         user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
-        meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=20)
+        user_state = user_data.get('state', 'maharashtra').lower()
+        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=20)
         if meals:
             # Filter meals by medical conditions if any
             if user_data.get('medical'):
@@ -2144,9 +2143,10 @@ async def add_grocery_items(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     suggested_ingredients = []
     if user_data:
-        # Load meals based on user's diet type
+        # Load meals based on user's diet type and state
         user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
-        meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=20)
+        user_state = user_data.get('state', 'maharashtra').lower()
+        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=20)
         if meals:
             # Filter meals by medical conditions if any
             if user_data.get('medical'):
@@ -2496,7 +2496,8 @@ async def order_on_zepto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # If no ingredients found, fallback to CSV meals
     if not all_ingredients:
         user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
-        meals = load_meal_data_from_csv(diet_type=user_diet, max_meals=20)
+        user_state = user_data.get('state', 'maharashtra').lower()
+        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=20)
         if meals:
             # Filter meals by medical conditions if any
             if user_data.get('medical'):
