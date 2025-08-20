@@ -1495,7 +1495,7 @@ async def handle_ingredients_input(update: Update, context: ContextTypes.DEFAULT
     return MEAL_PLAN
 
 async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Generate and display personalized meal plan with meal type selection."""
+    """Generate and display personalized meal plan with options."""
     query = update.callback_query
     await query.answer()
     
@@ -1527,25 +1527,239 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # Store user data in context for later use
     context.user_data['meal_plan_user_data'] = user_data
     
-    # Ask user for meal type first
+    # Show options for meal plan generation
+    keyboard = [
+        [InlineKeyboardButton("🍽️ Quick Daily Plan", callback_data="quick_meal_plan")],
+        [InlineKeyboardButton("🎯 Specific Meal Type", callback_data="meal_type_selection")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"🍽️ **Meal Plan Options**\n\n"
+        f"Hey {user_data.get('name', 'there')}! How would you like your meal plan?\n\n"
+        f"**🍽️ Quick Daily Plan** - Get a complete daily meal plan instantly\n"
+        f"**🎯 Specific Meal Type** - Choose breakfast, lunch, dinner, or snack\n\n"
+        f"Select your preference:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+    
+    return MEAL_PLAN
+
+async def quick_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Generate a quick daily meal plan instantly."""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    # Get user data from context
+    user_data = context.user_data.get('meal_plan_user_data')
+    if not user_data:
+        user_data = user_data_cache.get(user_id)
+        if not user_data:
+            user_data = await get_user_profile(user_id)
+            if not user_data:
+                await query.edit_message_text(
+                    "❌ No profile found. Please create your profile first.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🏠 Start Over", callback_data="start_over")
+                    ]])
+                )
+                return ConversationHandler.END
+    
+    # Update streak for completing Quick-Comm (getting meal plan)
+    streak_data = await update_user_streak(user_id)
+    
+    # Check if this is a new completion today (points were earned)
+    today = datetime.now().date()
+    points_earned = 0
+    if streak_data.get('last_completed_date') == today:
+        # Calculate points that would be earned for this streak
+        points_earned = calculate_streak_points(streak_data['streak_count'])
+    
+    # Show loading message
+    await query.edit_message_text(
+        "🍽️ Generating your quick daily meal plan...\n\n"
+        "Please wait a moment.",
+        parse_mode='Markdown'
+    )
+    
+    try:
+        # Determine data source based on user's state
+        user_state = user_data.get('state', '').lower()
+        
+        # 🔥 AI-POWERED: Generate meal plan using AI with static database context
+        logger.info(f"User {user_id} from {user_state.title()} - generating quick daily meal plan")
+        
+        # Generate AI meal plan (using static database as context)
+        ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db, "full_day")
+        logger.info(f"AI meal plan generated for user {user_id}: {len(ai_meal_plan) if ai_meal_plan else 0} characters")
+        
+        if ai_meal_plan and ai_meal_plan.strip():
+            # Create action buttons for AI meal plan
+            first_meal_name = "AI Generated Daily Meal Plan"
+            
+            # Clean meal name for callback data (remove special characters)
+            clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
+            if not clean_meal_name:
+                clean_meal_name = "AI_Generated_Meal"
+            
+            keyboard = [
+                [
+                    InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}"),
+                    InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")
+                ],
+                [InlineKeyboardButton("Log Today's Meals", callback_data="log_meal")],
+                [
+                    InlineKeyboardButton("Grocery List", callback_data="grocery_list"),
+                    InlineKeyboardButton("Order on Zepto", callback_data="order_zepto")
+                ],
+                [
+                    InlineKeyboardButton("New Plan", callback_data="get_meal_plan"),
+                    InlineKeyboardButton("Go Back", callback_data="go_back")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Cache the suggested meals for logging
+            meal_names = [{'name': first_meal_name}]
+            context.user_data["last_suggested_meals"] = meal_names
+            
+            await query.edit_message_text(
+                ai_meal_plan,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            logger.info(f"✅ AI meal plan sent to user {user_id}")
+            return MEAL_PLAN
+        else:
+            logger.warning(f"⚠️ AI meal plan failed for user {user_id}, using fallback")
+            
+            # Fallback to static meal generation using CSV
+            user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
+            user_state = user_data.get('state', 'maharashtra').lower()
+            
+            # Normalize diet type for CSV matching
+            diet_mapping = {
+                'veg': 'Vegetarian',
+                'vegetarian': 'Vegetarian',
+                'non-veg': 'Non-Vegetarian',
+                'non-vegetarian': 'Non-Vegetarian',
+                'vegan': 'Vegan',
+                'jain': 'Jain',
+                'eggitarian': 'Eggitarian',
+                'keto': 'Keto',
+                'mixed': 'Mixed'
+            }
+            csv_diet_type = diet_mapping.get(user_diet, 'Vegetarian')
+            
+            # Load meals from CSV based on user's state
+            meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, max_meals=50)
+            
+            # 🔥 CRITICAL: Apply medical filtering for accuracy
+            from ai_meal_generator import filter_meals_by_medical_condition
+            medical_condition = user_data.get('medical', 'None')
+            if medical_condition and medical_condition.lower() != 'none':
+                meals = filter_meals_by_medical_condition(meals, medical_condition)
+                logger.info(f"Applied medical filtering for {medical_condition}: {len(meals)} meals remaining")
+            
+            if not meals:
+                await query.edit_message_text(
+                    f"❌ No meal data available for {user_data['diet'].title()} diet in {user_data['state'].title()}.\n\n"
+                    "Please try again later or contact support.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
+                    ]])
+                )
+                return ConversationHandler.END
+            
+            # Generate full day meal plan
+            meal_plan = generate_full_day_meal_plan(meals, user_data, streak_data, points_earned)
+            
+            # Create action buttons
+            keyboard = [
+                [
+                    InlineKeyboardButton("👍 Like", callback_data="rate_like_quick_plan"),
+                    InlineKeyboardButton("👎 Dislike", callback_data="rate_dislike_quick_plan")
+                ],
+                [InlineKeyboardButton("Log Today's Meals", callback_data="log_meal")],
+                [
+                    InlineKeyboardButton("Grocery List", callback_data="grocery_list"),
+                    InlineKeyboardButton("Order on Zepto", callback_data="order_zepto")
+                ],
+                [
+                    InlineKeyboardButton("New Plan", callback_data="get_meal_plan"),
+                    InlineKeyboardButton("Go Back", callback_data="go_back")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Cache the suggested meals for logging
+            meal_names = [{'name': "Quick Daily Meal Plan"}]
+            context.user_data["last_suggested_meals"] = meal_names
+            
+            await query.edit_message_text(
+                meal_plan,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            logger.info(f"✅ Static meal plan sent to user {user_id}")
+            return MEAL_PLAN
+            
+    except Exception as e:
+        logger.error(f"❌ Error in quick meal generation: {e}")
+        await query.edit_message_text(
+            "❌ Error generating meal plan\n\n"
+            "Something went wrong. Please try again later.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
+            ]])
+        )
+        return ConversationHandler.END
+
+async def meal_type_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show meal type selection options."""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    # Get user data from context
+    user_data = context.user_data.get('meal_plan_user_data')
+    if not user_data:
+        user_data = user_data_cache.get(user_id)
+        if not user_data:
+            user_data = await get_user_profile(user_id)
+            if not user_data:
+                await query.edit_message_text(
+                    "❌ No profile found. Please create your profile first.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🏠 Start Over", callback_data="start_over")
+                    ]])
+                )
+                return ConversationHandler.END
+    
+    # Show meal type selection
     keyboard = [
         [InlineKeyboardButton("🌅 Breakfast", callback_data="meal_plan_type_breakfast")],
         [InlineKeyboardButton("☀️ Lunch", callback_data="meal_plan_type_lunch")],
         [InlineKeyboardButton("🌙 Dinner", callback_data="meal_plan_type_dinner")],
         [InlineKeyboardButton("🍎 Snack", callback_data="meal_plan_type_snack")],
-        [InlineKeyboardButton("🍽️ Full Day Plan", callback_data="meal_plan_type_full_day")]
+        [InlineKeyboardButton("🍽️ Full Day Plan", callback_data="meal_plan_type_full_day")],
+        [InlineKeyboardButton("⬅️ Go Back", callback_data="get_meal_plan")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        f"🍽️ Personalized Meal Plan\n\n"
-        f"Hey {user_data.get('name', 'there')}! Let me create a meal plan just for you.\n\n"
-        f"What type of meal plan would you like?\n\n"
-        f"Choose your option:",
-        reply_markup=reply_markup
+        f"🎯 **Choose Your Meal Type**\n\n"
+        f"Hey {user_data.get('name', 'there')}! What type of meal would you like?\n\n"
+        f"Select your preferred meal type:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
     
-    return MEAL_TYPE
+    return MEAL_PLAN
 
 async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Generate meal plan based on selected meal type."""
@@ -2888,6 +3102,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Main menu options
     elif query.data == "get_meal_plan":
         return await get_meal_plan(update, context)
+    elif query.data == "quick_meal_plan":
+        return await quick_meal_plan(update, context)
+    elif query.data == "meal_type_selection":
+        return await meal_type_selection(update, context)
     elif query.data.startswith("meal_plan_type_"):
         return await generate_meal_plan_by_type(update, context)
     elif query.data == "ingredient_meal":
