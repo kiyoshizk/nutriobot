@@ -1495,7 +1495,7 @@ async def handle_ingredients_input(update: Update, context: ContextTypes.DEFAULT
     return MEAL_PLAN
 
 async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Generate and display personalized meal plan using AI or JSON fallback."""
+    """Generate and display personalized meal plan with meal type selection."""
     query = update.callback_query
     await query.answer()
     
@@ -1524,6 +1524,54 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
             return ConversationHandler.END
     
+    # Store user data in context for later use
+    context.user_data['meal_plan_user_data'] = user_data
+    
+    # Ask user for meal type first
+    keyboard = [
+        [InlineKeyboardButton("🌅 Breakfast", callback_data="meal_plan_type_breakfast")],
+        [InlineKeyboardButton("☀️ Lunch", callback_data="meal_plan_type_lunch")],
+        [InlineKeyboardButton("🌙 Dinner", callback_data="meal_plan_type_dinner")],
+        [InlineKeyboardButton("🍎 Snack", callback_data="meal_plan_type_snack")],
+        [InlineKeyboardButton("🍽️ Full Day Plan", callback_data="meal_plan_type_full_day")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"🍽️ Personalized Meal Plan\n\n"
+        f"Hey {user_data.get('name', 'there')}! Let me create a meal plan just for you.\n\n"
+        f"What type of meal plan would you like?\n\n"
+        f"Choose your option:",
+        reply_markup=reply_markup
+    )
+    
+    return MEAL_TYPE
+
+async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Generate meal plan based on selected meal type."""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    # Get user data from context
+    user_data = context.user_data.get('meal_plan_user_data')
+    if not user_data:
+        user_data = user_data_cache.get(user_id)
+        if not user_data:
+            user_data = await get_user_profile(user_id)
+            if not user_data:
+                await query.edit_message_text(
+                    "❌ No profile found. Please create your profile first.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🏠 Start Over", callback_data="start_over")
+                    ]])
+                )
+                return ConversationHandler.END
+    
+    # Get selected meal type
+    meal_type = query.data.replace("meal_plan_type_", "")
+    
     # Update streak for completing Quick-Comm (getting meal plan)
     streak_data = await update_user_streak(user_id)
     
@@ -1534,28 +1582,27 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Calculate points that would be earned for this streak
         points_earned = calculate_streak_points(streak_data['streak_count'])
     
-    # 🍽️ PRIMARY: Generate meal plan based on user's state
+    # Show loading message
+    await query.edit_message_text(
+        f"Generating your {meal_type.replace('_', ' ').title()} meal plan...\n\n"
+        "Please wait a moment.",
+        parse_mode='Markdown'
+    )
+    
     try:
-        # Show loading message
-        await query.edit_message_text(
-            "Generating your meal plan...\n\n"
-            "Please wait a moment.",
-            parse_mode='Markdown'
-        )
-        
         # Determine data source based on user's state
         user_state = user_data.get('state', '').lower()
         
         # 🔥 AI-POWERED: Generate meal plan using AI with static database context
-        logger.info(f"User {user_id} from {user_state.title()} - using AI with static database")
+        logger.info(f"User {user_id} from {user_state.title()} - generating {meal_type} meal plan")
         
         # Generate AI meal plan (using static database as context)
-        ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db)
+        ai_meal_plan = await generate_ai_meal_plan(user_data, user_id, db, meal_type)
         logger.info(f"AI meal plan generated for user {user_id}: {len(ai_meal_plan) if ai_meal_plan else 0} characters")
         
         if ai_meal_plan and ai_meal_plan.strip():
             # Create action buttons for AI meal plan
-            first_meal_name = "AI Generated Meal Plan"
+            first_meal_name = f"AI Generated {meal_type.replace('_', ' ').title()} Plan"
             
             # Clean meal name for callback data (remove special characters)
             clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
@@ -1580,7 +1627,7 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Cache the suggested meals for logging
-            meal_names = [{'name': 'AI Generated Meal Plan'}]
+            meal_names = [{'name': first_meal_name}]
             context.user_data["last_suggested_meals"] = meal_names
             
             await query.edit_message_text(
@@ -1611,12 +1658,22 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             }
             csv_diet_type = diet_mapping.get(user_diet, 'Vegetarian')
             
-            # Load meals from CSV based on user's state
-            meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, max_meals=30)
+            # Load meals from CSV based on user's state and meal type
+            if meal_type == "full_day":
+                meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, max_meals=50)
+            else:
+                meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, meal_type=meal_type, max_meals=20)
+            
+            # 🔥 CRITICAL: Apply medical filtering for accuracy
+            from ai_meal_generator import filter_meals_by_medical_condition
+            medical_condition = user_data.get('medical', 'None')
+            if medical_condition and medical_condition.lower() != 'none':
+                meals = filter_meals_by_medical_condition(meals, medical_condition)
+                logger.info(f"Applied medical filtering for {medical_condition}: {len(meals)} meals remaining")
             
             if not meals:
                 await query.edit_message_text(
-                    f"❌ No meal data available for {user_data['diet'].title()} diet in Maharashtra.\n\n"
+                    f"❌ No meal data available for {user_data['diet'].title()} diet in {user_data['state'].title()}.\n\n"
                     "Please try again later or contact support.",
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
@@ -1624,119 +1681,19 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 )
                 return ConversationHandler.END
             
-            # Filter meals by meal type to ensure we get one of each
-            meal_categories = {
-                'Breakfast': [],
-                'Lunch': [],
-                'Dinner': [],
-                'Evening Snack': [],
-                'Morning Snack': []
-            }
+            # Generate meal plan based on type
+            if meal_type == "full_day":
+                # Generate full day plan
+                meal_plan = generate_full_day_meal_plan(meals, user_data, streak_data, points_earned)
+            else:
+                # Generate single meal type plan
+                meal_plan = generate_single_meal_plan(meals, user_data, meal_type, streak_data, points_earned)
             
-            # Categorize meals by their meal type
-            for meal in meals:
-                meal_type = meal.get('Category', meal.get('Meal', '')).strip()
-                if meal_type in meal_categories:
-                    meal_categories[meal_type].append(meal)
-                elif 'breakfast' in meal_type.lower():
-                    meal_categories['Breakfast'].append(meal)
-                elif 'lunch' in meal_type.lower():
-                    meal_categories['Lunch'].append(meal)
-                elif 'dinner' in meal_type.lower():
-                    meal_categories['Dinner'].append(meal)
-                elif 'snack' in meal_type.lower():
-                    if 'morning' in meal_type.lower():
-                        meal_categories['Morning Snack'].append(meal)
-                    else:
-                        meal_categories['Evening Snack'].append(meal)
-            
-            # Select one meal from each category
-            selected_meals = []
-            meal_types_order = ['Breakfast', 'Lunch', 'Dinner', 'Evening Snack']
-            
-            for meal_type in meal_types_order:
-                available_meals = meal_categories.get(meal_type, [])
-                if available_meals:
-                    # Randomly select one meal from this category
-                    selected_meal = random.choice(available_meals)
-                    selected_meals.append(selected_meal)
-                else:
-                    # If no meals in this category, try to find a similar one
-                    if meal_type == 'Evening Snack' and meal_categories.get('Morning Snack'):
-                        selected_meal = random.choice(meal_categories['Morning Snack'])
-                        selected_meals.append(selected_meal)
-                    elif len(meals) > len(selected_meals):
-                        # Fallback: pick any remaining meal
-                        remaining_meals = [m for m in meals if m not in selected_meals]
-                        if remaining_meals:
-                            selected_meals.append(random.choice(remaining_meals))
-            
-            # If we still don't have 4 meals, add more from any category
-            while len(selected_meals) < 4 and len(meals) > len(selected_meals):
-                remaining_meals = [m for m in meals if m not in selected_meals]
-                if remaining_meals:
-                    selected_meals.append(random.choice(remaining_meals))
-                else:
-                    break
-            
-            # Calculate total calories
-            total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
-            
-            # Format meal plan message with clean, readable layout
-            meal_message = f"Daily Meal Plan\n\n"
-            meal_message += f"Profile: {user_data.get('name', 'Your')}\n"
-            meal_message += f"Region: {user_data['state'].title()}\n"
-            meal_message += f"Diet: {user_data['diet'].title()}\n"
-            meal_message += f"Medical: {user_data['medical'].title()}\n"
-            meal_message += f"Activity: {user_data['activity'].title()}\n"
-            meal_message += f"Streak: {streak_data['streak_count']} days | Points: {streak_data['streak_points_total']}"
-            if points_earned > 0:
-                meal_message += f" (+{points_earned} today)"
-            meal_message += "\n\n"
-            meal_message += "─" * 40 + "\n\n"
-            
-            meal_types = ["Breakfast", "Lunch", "Dinner", "Snack"]
-            meal_names = []
-            
-            for i, meal in enumerate(selected_meals):
-                meal_type = meal_types[i] if i < len(meal_types) else "Meal"
-                meal_name = meal.get('Dish Combo', meal.get('Food Item', 'Unknown'))
-                calories = meal.get('approx_calories', 200)
-                health_impact = meal.get('Health Impact', '')
-                ingredients = meal.get('Ingredients', [])
-                calorie_level = meal.get('Calorie Level', '')
-                
-                meal_message += f"{meal_type}\n"
-                meal_message += f"{meal_name}\n"
-                meal_message += f"Calories: {calories}\n"
-                if calorie_level:
-                    meal_message += f"Level: {calorie_level.title()}\n"
-                if ingredients:
-                    ingredients_text = ", ".join(ingredients)
-                    meal_message += f"Ingredients: {ingredients_text}\n"
-                if health_impact:
-                    meal_message += f"Health: {health_impact}\n"
-                meal_message += "\n"
-                
-                # Store meal name for rating
-                meal_names.append({'name': meal_name})
-            
-            meal_message += "─" * 40 + "\n"
-            meal_message += f"Total Calories: {total_calories}\n\n"
-            meal_message += "Meals personalized for your health needs"
-            
-            # Create action buttons with ratings for the first meal
-            first_meal_name = meal_names[0].get('name', '') if meal_names else 'Meal Plan'
-            
-            # Clean meal name for callback data (remove special characters)
-            clean_meal_name = re.sub(r'[^\w\s-]', '', first_meal_name).strip()
-            if not clean_meal_name:
-                clean_meal_name = "Meal_Plan"
-            
+            # Create action buttons
             keyboard = [
                 [
-                    InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{clean_meal_name}"),
-                    InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{clean_meal_name}")
+                    InlineKeyboardButton("👍 Like", callback_data=f"rate_like_{meal_type}_plan"),
+                    InlineKeyboardButton("👎 Dislike", callback_data=f"rate_dislike_{meal_type}_plan")
                 ],
                 [InlineKeyboardButton("Log Today's Meals", callback_data="log_meal")],
                 [
@@ -1751,16 +1708,16 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Cache the suggested meals for logging
+            meal_names = [{'name': f"{meal_type.replace('_', ' ').title()} Plan"}]
             context.user_data["last_suggested_meals"] = meal_names
             
             await query.edit_message_text(
-                meal_message,
+                meal_plan,
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-            logger.info(f"✅ Static meal plan sent to user {user_id} (AI fallback)")
+            logger.info(f"✅ Static meal plan sent to user {user_id}")
             return MEAL_PLAN
-            return ConversationHandler.END
             
     except Exception as e:
         logger.error(f"❌ Error in meal generation: {e}")
@@ -1772,6 +1729,165 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             ]])
         )
         return ConversationHandler.END
+            
+    except Exception as e:
+        logger.error(f"❌ Error in meal generation: {e}")
+        await query.edit_message_text(
+            "❌ Error generating meal plan\n\n"
+            "Something went wrong. Please try again later.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 Try Again", callback_data="get_meal_plan")
+            ]])
+        )
+        return ConversationHandler.END
+
+def generate_full_day_meal_plan(meals, user_data, streak_data, points_earned):
+    """Generate a full day meal plan."""
+    # Filter meals by meal type to ensure we get one of each
+    meal_categories = {
+        'Breakfast': [],
+        'Lunch': [],
+        'Dinner': [],
+        'Evening Snack': [],
+        'Morning Snack': []
+    }
+    
+    # Categorize meals by their meal type
+    for meal in meals:
+        meal_type = meal.get('Category', meal.get('Meal', '')).strip()
+        if meal_type in meal_categories:
+            meal_categories[meal_type].append(meal)
+        elif 'breakfast' in meal_type.lower():
+            meal_categories['Breakfast'].append(meal)
+        elif 'lunch' in meal_type.lower():
+            meal_categories['Lunch'].append(meal)
+        elif 'dinner' in meal_type.lower():
+            meal_categories['Dinner'].append(meal)
+        elif 'snack' in meal_type.lower():
+            if 'morning' in meal_type.lower():
+                meal_categories['Morning Snack'].append(meal)
+            else:
+                meal_categories['Evening Snack'].append(meal)
+    
+    # Select one meal from each category
+    selected_meals = []
+    meal_types_order = ['Breakfast', 'Lunch', 'Dinner', 'Evening Snack']
+    
+    for meal_type in meal_types_order:
+        available_meals = meal_categories.get(meal_type, [])
+        if available_meals:
+            # Randomly select one meal from this category
+            selected_meal = random.choice(available_meals)
+            selected_meals.append(selected_meal)
+        else:
+            # If no meals in this category, try to find a similar one
+            if meal_type == 'Evening Snack' and meal_categories.get('Morning Snack'):
+                selected_meal = random.choice(meal_categories['Morning Snack'])
+                selected_meals.append(selected_meal)
+            elif len(meals) > len(selected_meals):
+                # Fallback: pick any remaining meal
+                remaining_meals = [m for m in meals if m not in selected_meals]
+                if remaining_meals:
+                    selected_meals.append(random.choice(remaining_meals))
+    
+    # If we still don't have 4 meals, add more from any category
+    while len(selected_meals) < 4 and len(meals) > len(selected_meals):
+        remaining_meals = [m for m in meals if m not in selected_meals]
+        if remaining_meals:
+            selected_meals.append(random.choice(remaining_meals))
+        else:
+            break
+    
+    # Calculate total calories
+    total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
+    
+    # Format meal plan message
+    meal_message = f"🍽️ **Full Day Meal Plan**\n\n"
+    meal_message += f"👤 **Profile:** {user_data.get('name', 'Your')}\n"
+    meal_message += f"📍 **Region:** {user_data['state'].title()}\n"
+    meal_message += f"🥗 **Diet:** {user_data['diet'].title()}\n"
+    meal_message += f"🏥 **Medical:** {user_data['medical'].title()}\n"
+    meal_message += f"🏃 **Activity:** {user_data['activity'].title()}\n"
+    meal_message += f"🔥 **Streak:** {streak_data['streak_count']} days | Points: {streak_data['streak_points_total']}"
+    if points_earned > 0:
+        meal_message += f" (+{points_earned} today)"
+    meal_message += "\n\n"
+    meal_message += "─" * 40 + "\n\n"
+    
+    meal_types = ["Breakfast", "Lunch", "Dinner", "Snack"]
+    
+    for i, meal in enumerate(selected_meals):
+        meal_type = meal_types[i] if i < len(meal_types) else "Meal"
+        meal_name = meal.get('Dish Combo', meal.get('Food Item', 'Unknown'))
+        calories = meal.get('approx_calories', 200)
+        health_impact = meal.get('Health Impact', '')
+        ingredients = meal.get('Ingredients', [])
+        calorie_level = meal.get('Calorie Level', '')
+        
+        meal_message += f"**{meal_type}**\n"
+        meal_message += f"🍽️ {meal_name}\n"
+        meal_message += f"🔥 Calories: {calories}\n"
+        if calorie_level:
+            meal_message += f"📊 Level: {calorie_level.title()}\n"
+        if ingredients:
+            ingredients_text = ", ".join(ingredients)
+            meal_message += f"🥘 Ingredients: {ingredients_text}\n"
+        if health_impact:
+            meal_message += f"💚 Health: {health_impact}\n"
+        meal_message += "\n"
+    
+    meal_message += "─" * 40 + "\n"
+    meal_message += f"🔥 **Total Calories:** {total_calories}\n\n"
+    meal_message += "✨ Meals personalized for your health needs"
+    
+    return meal_message
+
+def generate_single_meal_plan(meals, user_data, meal_type, streak_data, points_earned):
+    """Generate a single meal type plan."""
+    # Select 2-3 meals for the specific type
+    selected_meals = random.sample(meals, min(3, len(meals)))
+    
+    # Calculate total calories
+    total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
+    
+    # Format meal plan message
+    meal_type_display = meal_type.replace('_', ' ').title()
+    meal_message = f"🍽️ **{meal_type_display} Meal Plan**\n\n"
+    meal_message += f"👤 **Profile:** {user_data.get('name', 'Your')}\n"
+    meal_message += f"📍 **Region:** {user_data['state'].title()}\n"
+    meal_message += f"🥗 **Diet:** {user_data['diet'].title()}\n"
+    meal_message += f"🏥 **Medical:** {user_data['medical'].title()}\n"
+    meal_message += f"🏃 **Activity:** {user_data['activity'].title()}\n"
+    meal_message += f"🔥 **Streak:** {streak_data['streak_count']} days | Points: {streak_data['streak_points_total']}"
+    if points_earned > 0:
+        meal_message += f" (+{points_earned} today)"
+    meal_message += "\n\n"
+    meal_message += "─" * 40 + "\n\n"
+    
+    for i, meal in enumerate(selected_meals, 1):
+        meal_name = meal.get('Dish Combo', meal.get('Food Item', 'Unknown'))
+        calories = meal.get('approx_calories', 200)
+        health_impact = meal.get('Health Impact', '')
+        ingredients = meal.get('Ingredients', [])
+        calorie_level = meal.get('Calorie Level', '')
+        
+        meal_message += f"**Option {i}**\n"
+        meal_message += f"🍽️ {meal_name}\n"
+        meal_message += f"🔥 Calories: {calories}\n"
+        if calorie_level:
+            meal_message += f"📊 Level: {calorie_level.title()}\n"
+        if ingredients:
+            ingredients_text = ", ".join(ingredients)
+            meal_message += f"🥘 Ingredients: {ingredients_text}\n"
+        if health_impact:
+            meal_message += f"💚 Health: {health_impact}\n"
+        meal_message += "\n"
+    
+    meal_message += "─" * 40 + "\n"
+    meal_message += f"🔥 **Total Calories:** {total_calories}\n\n"
+    meal_message += f"✨ {meal_type_display} options personalized for your health needs"
+    
+    return meal_message
 
 async def handle_weekly_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle weekly meal plan request."""
@@ -2772,6 +2888,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Main menu options
     elif query.data == "get_meal_plan":
         return await get_meal_plan(update, context)
+    elif query.data.startswith("meal_plan_type_"):
+        return await generate_meal_plan_by_type(update, context)
     elif query.data == "ingredient_meal":
         return await handle_ingredient_meal(update, context)
     elif query.data.startswith("meal_type_"):
@@ -2780,6 +2898,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return await log_meal_command(update, context)
     elif query.data.startswith("follow_meal_") or query.data == "log_followed_done":
         return await handle_log_meal_followed(update, context)
+    elif query.data == "meal_type_done":
+        return await handle_meal_type_done(update, context)
+    elif query.data.startswith("skip_meal_type_"):
+        return await handle_skip_meal_type(update, context)
     elif query.data.startswith("skip_meal_") or query.data == "log_skipped_done":
         return await handle_log_meal_skipped(update, context)
     elif query.data.startswith("extra_") or query.data == "log_extra_done" or query.data == "add_custom_extra":
@@ -2842,7 +2964,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return ConversationHandler.END
 
 async def log_meal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the log meal flow."""
+    """Start the log meal flow with meal type separation."""
     # Handle both command and button callbacks
     if update.callback_query:
         query = update.callback_query
@@ -2902,44 +3024,161 @@ async def log_meal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         "extra_items": []
     }
     
-    # Create buttons for followed meals with better error handling
-    keyboard = []
+    # Categorize meals by type
+    meal_categories = {
+        "Breakfast": [],
+        "Lunch": [],
+        "Dinner": [],
+        "Snack": []
+    }
+    
+    # Sort meals into categories
     for i, meal in enumerate(last_meals):
-        # Handle both AI format (with 'name' key) and JSON format (with 'Food Item' key)
         if isinstance(meal, dict):
             meal_name = meal.get('name') or meal.get('Food Item', f'Meal {i+1}')
+            meal_category = meal.get('Category', meal.get('Meal', 'General'))
         else:
             meal_name = str(meal) if str(meal).strip() else f'Meal {i+1}'
+            meal_category = 'General'
         
-        # Ensure meal name is not too long for button
-        if len(meal_name) > 30:
-            meal_name = meal_name[:27] + "..."
-        
-        keyboard.append([InlineKeyboardButton(f"✅ {meal_name}", callback_data=f"follow_meal_{meal_name}")])
+        # Determine category based on meal name or category
+        category_lower = meal_category.lower()
+        if 'breakfast' in category_lower or 'breakfast' in meal_name.lower():
+            meal_categories["Breakfast"].append((meal_name, meal))
+        elif 'lunch' in category_lower or 'lunch' in meal_name.lower():
+            meal_categories["Lunch"].append((meal_name, meal))
+        elif 'dinner' in category_lower or 'dinner' in meal_name.lower():
+            meal_categories["Dinner"].append((meal_name, meal))
+        elif 'snack' in category_lower or 'snack' in meal_name.lower():
+            meal_categories["Snack"].append((meal_name, meal))
+        else:
+            # Default categorization based on position
+            if i == 0:
+                meal_categories["Breakfast"].append((meal_name, meal))
+            elif i == 1:
+                meal_categories["Lunch"].append((meal_name, meal))
+            elif i == 2:
+                meal_categories["Dinner"].append((meal_name, meal))
+            else:
+                meal_categories["Snack"].append((meal_name, meal))
     
-    keyboard.append([InlineKeyboardButton("✅ Done", callback_data="log_followed_done")])
+    # Store categorized meals in context
+    context.user_data["categorized_meals"] = meal_categories
+    context.user_data["current_meal_type"] = "Breakfast"
+    
+    # Show breakfast meals first
+    return await show_meal_type_selection(update, context)
+
+async def show_meal_type_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show meals for a specific meal type."""
+    # Handle both command and button callbacks
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+    else:
+        query = None
+    
+    current_meal_type = context.user_data.get("current_meal_type", "Breakfast")
+    categorized_meals = context.user_data.get("categorized_meals", {})
+    
+    # Get meals for current type
+    meals_for_type = categorized_meals.get(current_meal_type, [])
+    
+    # Create step indicator
+    meal_types = ["Breakfast", "Lunch", "Dinner", "Snack"]
+    current_step = meal_types.index(current_meal_type) + 1
+    total_steps = len(meal_types)
+    
+    # Create message
+    emoji_map = {
+        "Breakfast": "🌅",
+        "Lunch": "☀️", 
+        "Dinner": "🌙",
+        "Snack": "🍎"
+    }
+    
+    emoji = emoji_map.get(current_meal_type, "🍽️")
+    
+    message = f"📝 **Step {current_step}/{total_steps}: {current_meal_type}**\n\n"
+    message += f"{emoji} **Which {current_meal_type.lower()} did you eat today?**\n\n"
+    
+    if meals_for_type:
+        message += "Click the meals you actually ate:\n\n"
+    else:
+        message += "No specific meals found for this category.\n\n"
+    
+    # Create keyboard
+    keyboard = []
+    
+    # Add meal buttons
+    for meal_name, meal_data in meals_for_type:
+        # Ensure meal name is not too long for button
+        display_name = meal_name[:27] + "..." if len(meal_name) > 30 else meal_name
+        keyboard.append([InlineKeyboardButton(f"✅ {display_name}", callback_data=f"follow_meal_{meal_name}")])
+    
+    # Add "None" option if no meals for this type
+    if not meals_for_type:
+        keyboard.append([InlineKeyboardButton("❌ None", callback_data=f"skip_meal_type_{current_meal_type}")])
+    
+    # Add navigation buttons
+    keyboard.append([InlineKeyboardButton("✅ Done with this meal", callback_data="meal_type_done")])
     keyboard.append([InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    if update.callback_query:
+    if query:
         await query.edit_message_text(
-            "📝 **Step 1/4: Which meals did you follow today?**\n\n"
-            "Click the meals you actually ate today. They'll turn ✅ when selected.\n\n"
-            "Click ✅ Done when finished.",
+            message,
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
     else:
-        await update.message.reply_text(
-            "📝 **Step 1/4: Which meals did you follow today?**\n\n"
-            "Click the meals you actually ate today. They'll turn ✅ when selected.\n\n"
-            "Click ✅ Done when finished.",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        # This shouldn't happen, but handle it gracefully
+        return LOG_MEAL_FOLLOWED
     
     return LOG_MEAL_FOLLOWED
+
+async def handle_meal_type_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle when user is done with current meal type."""
+    query = update.callback_query
+    await query.answer()
+    
+    current_meal_type = context.user_data.get("current_meal_type", "Breakfast")
+    meal_types = ["Breakfast", "Lunch", "Dinner", "Snack"]
+    
+    # Find next meal type
+    try:
+        current_index = meal_types.index(current_meal_type)
+        if current_index < len(meal_types) - 1:
+            # Move to next meal type
+            next_meal_type = meal_types[current_index + 1]
+            context.user_data["current_meal_type"] = next_meal_type
+            return await show_meal_type_selection(update, context)
+        else:
+            # All meal types done, move to skipped meals
+            return await handle_log_meal_followed(update, context)
+    except ValueError:
+        # Fallback to next meal type
+        context.user_data["current_meal_type"] = "Lunch"
+        return await show_meal_type_selection(update, context)
+
+async def handle_skip_meal_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle when user skips a meal type."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract meal type from callback data
+    meal_type = query.data.replace("skip_meal_type_", "")
+    
+    # Add to skipped meals
+    meal_log = context.user_data.get("meal_log", {})
+    skipped_meals = meal_log.get("skipped_meals", [])
+    skipped_meals.append(f"Skipped {meal_type}")
+    meal_log["skipped_meals"] = skipped_meals
+    context.user_data["meal_log"] = meal_log
+    
+    # Move to next meal type
+    return await handle_meal_type_done(update, context)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the conversation."""
@@ -2954,42 +3193,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 async def handle_log_meal_followed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle followed meal selection."""
+    """Handle followed meal selection with meal type separation."""
     query = update.callback_query
     await query.answer()
     
     if query.data == "log_followed_done":
-        # Move to step 2: skipped meals
-        last_meals = context.user_data.get("last_suggested_meals", [])
-        
-        keyboard = []
-        for i, meal in enumerate(last_meals):
-            # Handle both AI format (with 'name' key) and JSON format (with 'Food Item' key)
-            if isinstance(meal, dict):
-                meal_name = meal.get('name') or meal.get('Food Item', f'Meal {i+1}')
-            else:
-                meal_name = str(meal) if str(meal).strip() else f'Meal {i+1}'
-            
-            # Ensure meal name is not too long for button
-            if len(meal_name) > 30:
-                meal_name = meal_name[:27] + "..."
-            
-            keyboard.append([InlineKeyboardButton(f"⛔ {meal_name}", callback_data=f"skip_meal_{meal_name}")])
-        
-        keyboard.append([InlineKeyboardButton("✅ Done", callback_data="log_skipped_done")])
-        keyboard.append([InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            "📝 **Step 2/4: Which meals did you skip today?**\n\n"
-            "Click the meals you didn't eat today. They'll turn ✅ when selected.\n\n"
-            "Click ✅ Done when finished.",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        
-        return LOG_MEAL_SKIPPED
+        # All meal types are done, move to extra items
+        return await handle_log_meal_extra(update, context)
     
     elif query.data.startswith("follow_meal_"):
         # Toggle meal selection
@@ -2999,38 +3209,35 @@ async def handle_log_meal_followed(update: Update, context: ContextTypes.DEFAULT
         
         if meal_name in followed_meals:
             followed_meals.remove(meal_name)
-            button_text = f"⛔ {meal_name}"
         else:
             followed_meals.append(meal_name)
-            button_text = f"✅ {meal_name}"
         
         meal_log["followed_meals"] = followed_meals
         context.user_data["meal_log"] = meal_log
         
         # Rebuild the keyboard with updated button states
-        last_meals = context.user_data.get("last_suggested_meals", [])
-        keyboard = []
-        for i, meal in enumerate(last_meals):
-            if isinstance(meal, dict):
-                meal_name = meal.get('name') or meal.get('Food Item', f'Meal {i+1}')
-            else:
-                meal_name = str(meal) if str(meal).strip() else f'Meal {i+1}'
-            
-            if len(meal_name) > 30:
-                meal_name = meal_name[:27] + "..."
-            
-            if meal_name in followed_meals:
-                keyboard.append([InlineKeyboardButton(f"✅ {meal_name}", callback_data=f"follow_meal_{meal_name}")])
-            else:
-                keyboard.append([InlineKeyboardButton(f"⛔ {meal_name}", callback_data=f"follow_meal_{meal_name}")])
+        current_meal_type = context.user_data.get("current_meal_type", "Breakfast")
+        categorized_meals = context.user_data.get("categorized_meals", {})
+        meals_for_type = categorized_meals.get(current_meal_type, [])
         
-        keyboard.append([InlineKeyboardButton("✅ Done", callback_data="log_followed_done")])
+        keyboard = []
+        for meal_name_display, meal_data in meals_for_type:
+            display_name = meal_name_display[:27] + "..." if len(meal_name_display) > 30 else meal_name_display
+            if meal_name_display in followed_meals:
+                keyboard.append([InlineKeyboardButton(f"✅ {display_name}", callback_data=f"follow_meal_{meal_name_display}")])
+            else:
+                keyboard.append([InlineKeyboardButton(f"⛔ {display_name}", callback_data=f"follow_meal_{meal_name_display}")])
+        
+        # Add navigation buttons
+        keyboard.append([InlineKeyboardButton("✅ Done with this meal", callback_data="meal_type_done")])
         keyboard.append([InlineKeyboardButton("⬅️ Go Back", callback_data="go_back")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_reply_markup(reply_markup=reply_markup)
         
         return LOG_MEAL_FOLLOWED
+    
+
 
 async def handle_log_meal_skipped(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle skipped meal selection."""
@@ -3111,8 +3318,7 @@ async def handle_log_meal_extra(update: Update, context: ContextTypes.DEFAULT_TY
     
     if query.data == "log_extra_done":
         # Save meal log and show confirmation
-        await save_meal_log_and_show_confirmation(update, context)
-        return ConversationHandler.END
+        return await save_meal_log_and_show_confirmation(update, context)
     
     elif query.data == "add_custom_extra":
         # Ask for custom extra item
@@ -3213,7 +3419,7 @@ async def handle_log_meal_custom(update: Update, context: ContextTypes.DEFAULT_T
     
     return LOG_MEAL_EXTRA
 
-async def save_meal_log_and_show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def save_meal_log_and_show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Save meal log to Firebase and show confirmation."""
     query = update.callback_query
     user_id = query.from_user.id
@@ -3274,6 +3480,9 @@ async def save_meal_log_and_show_confirmation(update: Update, context: ContextTy
         ]]),
         parse_mode='Markdown'
     )
+    
+    # Return to MEAL_PLAN state so the go_back button works properly
+    return MEAL_PLAN
 
 def main() -> None:
     """Start the bot with comprehensive error handling."""

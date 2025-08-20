@@ -35,6 +35,50 @@ MAX_CACHE_SIZE = 1000
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 AI_AVAILABLE = bool(OPENROUTER_API_KEY)
 
+# Medical condition mapping for accurate meal filtering
+MEDICAL_CONDITION_MAPPING = {
+    'diabetes': {
+        'keywords': ['diabetes', 'diabetic', 'blood sugar', 'glucose'],
+        'avoid': ['high sugar', 'refined carbs', 'sweet', 'jaggery', 'honey'],
+        'prefer': ['low glycemic', 'fiber rich', 'complex carbs', 'protein'],
+        'max_carbs': 45,  # grams per meal
+        'max_calories': 400
+    },
+    'thyroid': {
+        'keywords': ['thyroid', 'hypothyroid', 'hyperthyroid'],
+        'avoid': ['goitrogenic foods', 'raw cabbage', 'soy'],
+        'prefer': ['iodine rich', 'selenium rich', 'protein rich'],
+        'max_calories': 500
+    },
+    'heart': {
+        'keywords': ['heart', 'cardiac', 'cardiovascular', 'bp', 'blood pressure'],
+        'avoid': ['high sodium', 'fried', 'trans fat', 'saturated fat'],
+        'prefer': ['low sodium', 'heart healthy', 'omega 3', 'fiber'],
+        'max_sodium': 500,  # mg per meal
+        'max_fat': 15  # grams per meal
+    },
+    'obesity': {
+        'keywords': ['obesity', 'overweight', 'weight loss'],
+        'avoid': ['high calorie', 'fried', 'sweet'],
+        'prefer': ['low calorie', 'high protein', 'fiber rich'],
+        'max_calories': 300
+    },
+    'kidney': {
+        'keywords': ['kidney', 'renal', 'creatinine'],
+        'avoid': ['high protein', 'high potassium', 'high sodium'],
+        'prefer': ['low protein', 'low potassium', 'low sodium'],
+        'max_protein': 15,  # grams per meal
+        'max_calories': 350
+    },
+    'liver': {
+        'keywords': ['liver', 'hepatic'],
+        'avoid': ['high fat', 'fried', 'alcohol'],
+        'prefer': ['low fat', 'protein rich', 'antioxidant'],
+        'max_fat': 10,  # grams per meal
+        'max_calories': 400
+    }
+}
+
 # Cache for performance
 meal_data_cache: Dict[str, List[Dict[str, Any]]] = {}
 user_meal_counter: Dict[int, int] = {}  # Track meal position for each user
@@ -54,6 +98,83 @@ def cleanup_cache(cache: Dict[str, Any]) -> None:
             logger.warning("Cache cleared due to cleanup error")
         except Exception as clear_error:
             logger.error(f"Failed to clear cache: {clear_error}")
+
+def filter_meals_by_medical_condition(meals: List[Dict[str, Any]], medical_condition: str) -> List[Dict[str, Any]]:
+    """Filter meals based on medical condition for maximum accuracy."""
+    if not medical_condition or medical_condition.lower() == 'none':
+        return meals
+    
+    medical_condition = medical_condition.lower()
+    filtered_meals = []
+    
+    # Find matching medical condition
+    condition_config = None
+    for condition, config in MEDICAL_CONDITION_MAPPING.items():
+        if any(keyword in medical_condition for keyword in config['keywords']):
+            condition_config = config
+            break
+    
+    if not condition_config:
+        return meals  # Return all meals if no specific condition found
+    
+    for meal in meals:
+        score = 0
+        should_avoid = False
+        
+        # Check meal name and ingredients
+        meal_name = meal.get('Food Item', meal.get('name', '')).lower()
+        ingredients = meal.get('Ingredients', [])
+        if isinstance(ingredients, str):
+            ingredients = [ing.strip().lower() for ing in ingredients.split(',')]
+        
+        # Check for foods to avoid
+        for avoid_item in condition_config.get('avoid', []):
+            if avoid_item in meal_name:
+                should_avoid = True
+                break
+            for ingredient in ingredients:
+                if avoid_item in ingredient:
+                    should_avoid = True
+                    break
+            if should_avoid:
+                break
+        
+        if should_avoid:
+            continue
+        
+        # Check for preferred foods
+        for prefer_item in condition_config.get('prefer', []):
+            if prefer_item in meal_name:
+                score += 5
+            for ingredient in ingredients:
+                if prefer_item in ingredient:
+                    score += 3
+        
+        # Check nutritional limits
+        calories = meal.get('approx_calories', meal.get('Calories (kcal)', 200))
+        carbs = meal.get('Carbs (g)', 0)
+        protein = meal.get('Protein (g)', 0)
+        fat = meal.get('Fat (g)', 0)
+        
+        # Apply medical condition limits
+        if 'max_calories' in condition_config and calories > condition_config['max_calories']:
+            continue
+        if 'max_carbs' in condition_config and carbs > condition_config['max_carbs']:
+            continue
+        if 'max_protein' in condition_config and protein > condition_config['max_protein']:
+            continue
+        if 'max_fat' in condition_config and fat > condition_config['max_fat']:
+            continue
+        
+        # Add meal with score
+        meal['medical_score'] = score
+        filtered_meals.append(meal)
+    
+    # Sort by medical score (highest first)
+    filtered_meals.sort(key=lambda x: x.get('medical_score', 0), reverse=True)
+    
+    logger.info(f"Filtered {len(meals)} meals to {len(filtered_meals)} for {medical_condition}")
+    return filtered_meals
 
 def get_fallback_meal_data() -> List[Dict[str, Any]]:
     """Get fallback meal data when CSV/JSON loading fails."""
@@ -366,6 +487,12 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
             if other_meals:
                 all_meals.extend(other_meals)
         
+        # 🔥 CRITICAL: Apply medical filtering for accuracy
+        medical_condition = user_data.get('medical', 'None')
+        if medical_condition and medical_condition.lower() != 'none':
+            all_meals = filter_meals_by_medical_condition(all_meals, medical_condition)
+            logger.info(f"Applied medical filtering for {medical_condition}: {len(all_meals)} meals remaining")
+        
         logger.info(f"Loaded {len(all_meals)} total meals from all sources")
         
         # 🔥 STEP 2: Advanced ingredient matching with scoring
@@ -415,6 +542,10 @@ async def generate_ingredient_based_meal_plan(user_data: Dict[str, Any], ingredi
             # Bonus for regional preference
             if state.lower() in meal.get('Region', '').lower():
                 score += 3
+            
+            # 🔥 CRITICAL: Major bonus for medical safety
+            medical_score = meal.get('medical_score', 0)
+            score += medical_score * 2  # Double the medical score importance
             
             if score > 0:
                 matching_meals.append({
@@ -738,75 +869,104 @@ async def generate_ai_meal_plan(profile: Dict[str, Any], user_id: int, db=None) 
             diet = 'non-vegetarian'
         
         # Load meals from static database for context based on state
-        meals = load_meal_data_from_csv(state=state, diet_type=diet.title(), max_meals=20)
+        meals = load_meal_data_from_csv(state=state, diet_type=diet.title(), max_meals=50)
         if not meals:
             # Fallback to JSON for other states
             meals = load_meal_data_from_json(state)
         
-        # Prepare meal context for AI
+        # 🔥 CRITICAL: Filter meals by medical condition for accuracy
+        medical_filtered_meals = filter_meals_by_medical_condition(meals, medical)
+        
+        # Use medical-filtered meals if available, otherwise use original meals
+        if medical_filtered_meals:
+            meals = medical_filtered_meals
+            logger.info(f"Using {len(meals)} medical-filtered meals for {medical}")
+        else:
+            logger.warning(f"No medical-filtered meals found, using {len(meals)} original meals")
+        
+        # Prepare detailed meal context for AI with medical information
         meal_context = []
-        for meal in meals[:10]:  # Use first 10 meals as context
+        for meal in meals[:15]:  # Use more meals for better selection
             meal_context.append({
                 'name': meal.get('Food Item', meal.get('name', 'Unknown')),
-                'calories': meal.get('approx_calories', 200),
+                'calories': meal.get('approx_calories', meal.get('Calories (kcal)', 200)),
+                'carbs': meal.get('Carbs (g)', 0),
+                'protein': meal.get('Protein (g)', 0),
+                'fat': meal.get('Fat (g)', 0),
                 'ingredients': meal.get('Ingredients', []),
-                'category': meal.get('Category', 'General')
+                'category': meal.get('Category', meal.get('Meal', 'General')),
+                'healthy_tag': meal.get('Healthy Tag', ''),
+                'medical_score': meal.get('medical_score', 0)
             })
         
-        # Build AI prompt optimized for Mistral 7B
-        prompt = f"""<s>[INST] You are a nutrition expert. Create a personalized daily meal plan for this user.
+        # Build AI prompt optimized for medical accuracy
+        prompt = f"""<s>[INST] You are a certified nutritionist and medical expert specializing in therapeutic nutrition. Create a HIGHLY ACCURATE and SAFE meal plan for this user.
+
+⚠️ CRITICAL: This user has medical condition: {medical}
+You MUST prioritize medical safety and accuracy above all else.
 
 USER PROFILE:
 Name: {name}
 Age: {age}
 Diet: {diet.title()}
 Region: {state.title()}
-Medical: {medical}
+Medical Condition: {medical} ⚠️ CRITICAL
 Activity: {activity}
 
-AVAILABLE MEALS ({state.title()} cuisine, {diet} diet):
-{json.dumps(meal_context, indent=2)}
+AVAILABLE MEALS (Pre-filtered for {medical} safety):
+{json.dumps(meals[:20], indent=2)}
 
-INSTRUCTIONS:
-1. Select 4 meals from the available list above
-2. Create one meal each for: Breakfast, Lunch, Dinner, Snack
-3. Ensure variety and nutritional balance
-4. Consider the user's profile (age, diet, activity level)
-5. Format exactly as shown below
-6. Calculate total calories
+MEDICAL GUIDELINES FOR {medical.upper()}:
+- Meals are pre-filtered for your condition
+- Higher medical_score = better for your condition
+- Follow nutritional limits strictly
+- Avoid foods that could worsen your condition
+
+INSTRUCTIONS (MEDICAL PRIORITY):
+1. ONLY select meals from the provided list (these are medically safe)
+2. Prioritize meals with higher medical_score
+3. Ensure nutritional balance within medical limits
+4. Create one meal each: Breakfast, Lunch, Dinner, Snack
+5. Calculate total calories and nutrients
+6. Double-check all selections are safe for {medical}
 
 FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
 
-**Daily Meal Plan**
+**Medical Meal Plan - {medical.title()} Safe**
 
 **Profile:** {name}
 **Region:** {state.title()}
 **Diet:** {diet.title()}
-**Medical:** {medical}
+**Medical Condition:** {medical} ⚠️
 **Activity:** {activity}
 
 ────────────────────────────────────────
 
 **Breakfast**
-[Select meal name from list]
-Calories: [calories from meal data]
+[Select from list - prioritize high medical_score]
+Calories: [calories]
+Carbs: [carbs]g | Protein: [protein]g | Fat: [fat]g
 
 **Lunch**
-[Select meal name from list]
-Calories: [calories from meal data]
+[Select from list - prioritize high medical_score]
+Calories: [calories]
+Carbs: [carbs]g | Protein: [protein]g | Fat: [fat]g
 
 **Dinner**
-[Select meal name from list]
-Calories: [calories from meal data]
+[Select from list - prioritize high medical_score]
+Calories: [calories]
+Carbs: [carbs]g | Protein: [protein]g | Fat: [fat]g
 
 **Snack**
-[Select meal name from list]
-Calories: [calories from meal data]
+[Select from list - prioritize high medical_score]
+Calories: [calories]
+Carbs: [carbs]g | Protein: [protein]g | Fat: [fat]g
 
 ────────────────────────────────────────
-**Total Calories:** [sum of all calories]
+**Total:** Calories: [total] | Carbs: [total]g | Protein: [total]g | Fat: [total]g
 
-*Personalized for your health needs* [/INST]"""
+✅ **Medically Safe for {medical}**
+⚠️ **Always consult your doctor before making dietary changes** [/INST]"""
 
         # Call AI API
         async with aiohttp.ClientSession() as session:
