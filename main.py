@@ -2163,25 +2163,33 @@ async def show_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     # Extract ingredients from selected meals - ONLY from meal data
     all_ingredients = set()
-    for meal in filtered_meals[:4]:  # Take first 4 meals
+    for meal in filtered_meals[:8]:  # Take first 8 meals for more variety
         ingredients = meal.get('Ingredients', [])
         if isinstance(ingredients, list):
             # Clean and validate each ingredient
             for ingredient in ingredients:
                 if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
-                    all_ingredients.add(ingredient.strip())
+                    # Clean ingredient name
+                    clean_ingredient = ingredient.strip()
+                    # Remove common measurement units and quantities
+                    clean_ingredient = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg|\d+%', '', clean_ingredient).strip()
+                    if clean_ingredient and len(clean_ingredient) > 1:
+                        all_ingredients.add(clean_ingredient)
     
     # Convert to list and sort
     ingredients_list = sorted(list(all_ingredients))
     
-    # If no ingredients found, try to get from more meals
-    if len(ingredients_list) < 3:
-        for meal in filtered_meals[4:8]:  # Try next 4 meals
+    # If still no ingredients found, try to get from more meals
+    if len(ingredients_list) < 5:
+        for meal in filtered_meals[8:15]:  # Try more meals
             ingredients = meal.get('Ingredients', [])
             if isinstance(ingredients, list):
                 for ingredient in ingredients:
                     if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
-                        all_ingredients.add(ingredient.strip())
+                        clean_ingredient = ingredient.strip()
+                        clean_ingredient = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg|\d+%', '', clean_ingredient).strip()
+                        if clean_ingredient and len(clean_ingredient) > 1:
+                            all_ingredients.add(clean_ingredient)
         ingredients_list = sorted(list(all_ingredients))
     
     # Get user's current grocery list from cache or Firebase
@@ -2248,29 +2256,30 @@ async def manage_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Load meals based on user's diet type and state
         user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
         user_state = user_data.get('state', 'maharashtra').lower()
-        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=20)
+        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=30)
         if meals:
             # Filter meals by medical conditions if any
             if user_data.get('medical'):
                 filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
             else:
-                filtered_meals = meals[:4]
+                filtered_meals = meals[:10]  # Take more meals for better ingredient variety
             
-            if len(filtered_meals) < 4:
-                filtered_meals = meals[:4]
+            if len(filtered_meals) < 10:
+                filtered_meals = meals[:10]
             
             all_ingredients = set()
-            for meal in filtered_meals[:4]:
+            for meal in filtered_meals:
                 ingredients = meal.get('Ingredients', [])
                 if isinstance(ingredients, list):
-                    all_ingredients.update(ingredients)
+                    for ingredient in ingredients:
+                        if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
+                            # Clean ingredient name
+                            clean_ingredient = ingredient.strip()
+                            # Remove common measurement units and quantities
+                            clean_ingredient = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg|\d+%', '', clean_ingredient).strip()
+                            if clean_ingredient and len(clean_ingredient) > 1:
+                                all_ingredients.add(clean_ingredient)
             suggested_ingredients = sorted(list(all_ingredients))
-    
-    # Add common ingredients
-    common_ingredients = ["Rice", "Oil", "Salt", "Spices", "Vegetables", "Onions", "Tomatoes", "Potatoes", "Carrots", "Capsicum"]
-    suggested_ingredients.extend([item for item in common_ingredients if item not in suggested_ingredients])
-    suggested_ingredients = list(set(suggested_ingredients))  # Remove duplicates
-    suggested_ingredients.sort()
     
     # Create management message
     manage_message = (
@@ -2317,29 +2326,30 @@ async def add_grocery_items(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         # Load meals based on user's diet type and state
         user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
         user_state = user_data.get('state', 'maharashtra').lower()
-        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=20)
+        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=30)
         if meals:
             # Filter meals by medical conditions if any
             if user_data.get('medical'):
                 filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
             else:
-                filtered_meals = meals[:4]
+                filtered_meals = meals[:10]  # Take more meals for better ingredient variety
             
-            if len(filtered_meals) < 4:
-                filtered_meals = meals[:4]
+            if len(filtered_meals) < 10:
+                filtered_meals = meals[:10]
             
             all_ingredients = set()
-            for meal in filtered_meals[:4]:
+            for meal in filtered_meals:
                 ingredients = meal.get('Ingredients', [])
                 if isinstance(ingredients, list):
-                    all_ingredients.update(ingredients)
+                    for ingredient in ingredients:
+                        if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
+                            # Clean ingredient name
+                            clean_ingredient = ingredient.strip()
+                            # Remove common measurement units and quantities
+                            clean_ingredient = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg|\d+%', '', clean_ingredient).strip()
+                            if clean_ingredient and len(clean_ingredient) > 1:
+                                all_ingredients.add(clean_ingredient)
             suggested_ingredients = sorted(list(all_ingredients))
-    
-    # Add common ingredients
-    common_ingredients = ["Rice", "Oil", "Salt", "Spices", "Vegetables", "Onions", "Tomatoes", "Potatoes", "Carrots", "Capsicum", "Milk", "Bread", "Eggs", "Chicken", "Fish"]
-    suggested_ingredients.extend([item for item in common_ingredients if item not in suggested_ingredients])
-    suggested_ingredients = list(set(suggested_ingredients))
-    suggested_ingredients.sort()
     
     # Get user's current list to avoid duplicates
     user_grocery_list = await get_grocery_list(user_id)
@@ -2668,29 +2678,29 @@ async def order_on_zepto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not all_ingredients:
         user_diet = user_data.get('diet_type', user_data.get('diet', 'vegetarian')).lower()
         user_state = user_data.get('state', 'maharashtra').lower()
-        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=20)
+        meals = load_meal_data_from_csv(state=user_state, diet_type=user_diet, max_meals=30)
         if meals:
             # Filter meals by medical conditions if any
             if user_data.get('medical'):
                 filtered_meals = filter_meals_by_preferences(meals, user_diet, user_data['medical'])
             else:
-                filtered_meals = meals[:4]
+                filtered_meals = meals[:10]
             
-            if len(filtered_meals) < 4:
-                filtered_meals = meals[:4]
+            if len(filtered_meals) < 10:
+                filtered_meals = meals[:10]
             
-            for meal in filtered_meals[:4]:
+            for meal in filtered_meals:
                 ingredients = meal.get('Ingredients', [])
                 if isinstance(ingredients, list):
-                    all_ingredients.update(ingredients)
+                    for ingredient in ingredients:
+                        if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
+                            clean_ingredient = ingredient.strip()
+                            clean_ingredient = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg|\d+%', '', clean_ingredient).strip()
+                            if clean_ingredient and len(clean_ingredient) > 1:
+                                all_ingredients.add(clean_ingredient)
     
     # Convert to list and sort
     ingredients_list = sorted(list(all_ingredients))
-    
-    # Add common ingredients if list is too short
-    if len(ingredients_list) < 5:
-        common_ingredients = ["Rice", "Oil", "Salt", "Spices", "Vegetables", "Onion", "Tomato", "Potato"]
-        ingredients_list.extend([item for item in common_ingredients if item not in ingredients_list])
     
     # Silently add ingredients to grocery list
     if ingredients_list:
