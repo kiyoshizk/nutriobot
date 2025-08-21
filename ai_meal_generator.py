@@ -226,6 +226,8 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
             csv_path = Path("maharastra.csv")
             logger.info("No state specified, defaulting to maharashtra.csv")
         
+        logger.info(f"📁 [AI] Loading CSV from: {csv_path.absolute()}")
+        
         if not csv_path.exists():
             logger.error(f"CSV file not found: {csv_path}")
             return get_fallback_meal_data()
@@ -233,7 +235,10 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
         # Check cache first
         cache_key = f"{state}_{diet_type}_{meal_type}_{max_meals}"
         if cache_key in meal_data_cache:
+            logger.info(f"📊 [AI] Returning cached meals for key: {cache_key}")
             return meal_data_cache[cache_key]
+        
+        logger.info(f"🔍 [AI] Loading meals for state: {state}, diet: {diet_type}, meal_type: {meal_type}")
         
         meals = []
         meals_found = 0
@@ -249,12 +254,41 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
                 if not row.get('Dish Combo'):
                     continue
                 
-                # Apply filters
+                # Apply filters with debug logging
                 if diet_type and row.get('Diet Type', '').lower() != diet_type.lower():
+                    logger.debug(f"❌ [AI] Diet filter: CSV={row.get('Diet Type', '')}, Requested={diet_type}")
                     continue
                 
-                if meal_type and row.get('Meal', '').lower() != meal_type.lower():
-                    continue
+                if meal_type:
+                    csv_meal = row.get('Meal', '').lower()
+                    requested_meal = meal_type.lower()
+                    
+                    # Handle meal type mapping for CSV format
+                    meal_mapping = {
+                        'snack': ['morning snack', 'evening snack'],
+                        'morning snack': ['morning snack'],
+                        'evening snack': ['evening snack'],
+                        'breakfast': ['breakfast'],
+                        'lunch': ['lunch'],
+                        'dinner': ['dinner'],
+                        'day total': ['day total']
+                    }
+                    
+                    # Check if the requested meal type matches the CSV meal
+                    meal_passed = False
+                    if requested_meal in meal_mapping:
+                        if csv_meal in meal_mapping[requested_meal]:
+                            meal_passed = True
+                            logger.debug(f"✅ [AI] Meal passed mapping filter: CSV={csv_meal}, Requested={requested_meal}")
+                    else:
+                        # Direct comparison for other meal types
+                        if csv_meal == requested_meal:
+                            meal_passed = True
+                            logger.debug(f"✅ [AI] Meal passed direct filter: CSV={csv_meal}, Requested={requested_meal}")
+                    
+                    if not meal_passed:
+                        logger.debug(f"❌ [AI] Meal filter: CSV={csv_meal}, Requested={requested_meal}")
+                        continue
                 
                 # Convert to standard format
                 meal = {
@@ -272,6 +306,15 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
         if meals:
             meal_data_cache[cache_key] = meals
             cleanup_cache(meal_data_cache)
+            logger.info(f"📊 [AI] Loaded {len(meals)} meals from CSV")
+            logger.info(f"✅ [AI] Sample meals: {[m.get('name', 'Unknown') for m in meals[:3]]}")
+        else:
+            logger.warning(f"⚠️ [AI] No meals loaded for state: {state}, diet: {diet_type}, meal_type: {meal_type}")
+            # Try loading without meal type filter to see if any meals exist
+            all_meals = load_meal_data_from_csv(state=state, diet_type=diet_type, max_meals=10)
+            logger.warning(f"🔍 [AI] Total meals without meal filter: {len(all_meals) if all_meals else 0}")
+            if all_meals:
+                logger.warning(f"🔍 [AI] Sample meals without filter: {[m.get('name', 'Unknown') for m in all_meals[:3]]}")
         
         return meals if meals else get_fallback_meal_data()
         
@@ -299,11 +342,13 @@ def format_meal_plan(meals: List[Dict[str, Any]], user_name: str, age: int, diet
     
     counter = user_meal_counter[user_id]
     
-    # Simple meal categorization
-    breakfast_meals = [m for m in meals if 'breakfast' in m.get('meal_type', '').lower()]
-    lunch_meals = [m for m in meals if 'lunch' in m.get('meal_type', '').lower()]
-    dinner_meals = [m for m in meals if 'dinner' in m.get('meal_type', '').lower()]
-    snack_meals = [m for m in meals if 'snack' in m.get('meal_type', '').lower()]
+    # Meal categorization with proper CSV meal type mapping
+    breakfast_meals = [m for m in meals if m.get('meal_type', '').lower() == 'breakfast']
+    lunch_meals = [m for m in meals if m.get('meal_type', '').lower() == 'lunch']
+    dinner_meals = [m for m in meals if m.get('meal_type', '').lower() == 'dinner']
+    snack_meals = [m for m in meals if m.get('meal_type', '').lower() in ['morning snack', 'evening snack']]
+    
+    logger.info(f"🔍 [AI] Meal categorization: Breakfast={len(breakfast_meals)}, Lunch={len(lunch_meals)}, Dinner={len(dinner_meals)}, Snack={len(snack_meals)}")
     
     # Select meals serially (in order) with user-specific offset
     breakfast = breakfast_meals[counter % len(breakfast_meals)] if breakfast_meals else meals[counter % len(meals)] if meals else None
@@ -376,6 +421,7 @@ async def generate_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> 
         state = profile.get('state', 'India')
         
         # Normalize diet type to match CSV values
+        original_diet = diet
         if diet in ['veg', 'vegetarian']:
             diet = 'Vegetarian'
         elif diet in ['non-veg', 'non-vegetarian']:
@@ -390,6 +436,8 @@ async def generate_meal_plan(profile: Dict[str, Any], user_id: int, db=None) -> 
             diet = 'Keto'
         elif diet == 'mixed':
             diet = 'Mixed'
+        
+        logger.info(f"🔍 [AI] Diet mapping: original='{original_diet}' -> normalized='{diet}'")
         
         # Load meals from static database based on state
         meals = load_meal_data_from_csv(state=state, diet_type=diet, max_meals=20)
