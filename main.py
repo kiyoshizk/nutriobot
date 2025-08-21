@@ -3177,6 +3177,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return await log_meal_command(update, context)
     elif query.data == "navigate_back":
         return await navigate_back(update, context)
+    elif query.data.startswith("ate_"):
+        return await handle_ate_meal(update, context)
+    elif query.data.startswith("skipped_"):
+        return await handle_skipped_meal(update, context)
+    elif query.data.startswith("custom_"):
+        return await handle_custom_meal(update, context)
     elif query.data.startswith("follow_meal_") or query.data == "log_followed_done":
         return await handle_log_meal_followed(update, context)
     elif query.data == "meal_type_done":
@@ -3185,6 +3191,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return await handle_skip_meal_type(update, context)
     elif query.data.startswith("skip_meal_") or query.data == "log_skipped_done":
         return await handle_log_meal_skipped(update, context)
+    elif query.data.startswith("custom_meal_input"):
+        return await handle_custom_meal_input(update, context)
     elif query.data.startswith("extra_") or query.data == "log_extra_done" or query.data == "add_custom_extra":
         return await handle_log_meal_extra(update, context)
     elif query.data == "week_plan":
@@ -3245,7 +3253,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return ConversationHandler.END
 
 async def log_meal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the log meal flow with meal type separation."""
+    """Start the log meal flow with individual meal type selection."""
     # Handle both command and button callbacks
     if update.callback_query:
         query = update.callback_query
@@ -3276,82 +3284,76 @@ async def log_meal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 )
             return ConversationHandler.END
     
-    # Get last suggested meals from context
-    last_meals = context.user_data.get("last_suggested_meals", [])
-    
-    if not last_meals:
-        if update.callback_query:
-            await query.edit_message_text(
-                "❌ No meal suggestions found for today.\n\n"
-                "Please get a meal plan first, then log your meals!",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🍽️ Get Meal Plan", callback_data="get_meal_plan")
-                ]])
-            )
-        else:
-            await update.message.reply_text(
-                "❌ No meal suggestions found for today.\n\n"
-                "Please get a meal plan first, then log your meals!",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🍽️ Get Meal Plan", callback_data="get_meal_plan")
-                ]])
-            )
-        return ConversationHandler.END
-    
     # Add to navigation stack
-    add_to_navigation_stack(user_id, "log_meal_start", {"last_meals": last_meals})
+    add_to_navigation_stack(user_id, "log_meal_start", {})
     
     # Initialize meal log in context
     context.user_data["meal_log"] = {
-        "followed_meals": [],
-        "skipped_meals": [],
-        "extra_items": []
+        "breakfast": {"ate": False, "meal": None, "extra": []},
+        "lunch": {"ate": False, "meal": None, "extra": []},
+        "dinner": {"ate": False, "meal": None, "extra": []},
+        "snack": {"ate": False, "meal": None, "extra": []}
     }
     
-    # Categorize meals by type
-    meal_categories = {
-        "Breakfast": [],
-        "Lunch": [],
-        "Dinner": [],
-        "Snack": []
+    # Start with breakfast
+    context.user_data["current_meal_type"] = "breakfast"
+    
+    # Show breakfast selection
+    return await show_individual_meal_selection(update, context)
+
+async def show_individual_meal_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show individual meal selection for each meal type."""
+    # Handle both command and button callbacks
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+    else:
+        query = None
+    
+    current_meal_type = context.user_data.get("current_meal_type", "breakfast")
+    meal_log = context.user_data.get("meal_log", {})
+    
+    # Create step indicator
+    meal_types = ["breakfast", "lunch", "dinner", "snack"]
+    current_step = meal_types.index(current_meal_type) + 1
+    total_steps = len(meal_types)
+    
+    # Create message
+    emoji_map = {
+        "breakfast": "🌅",
+        "lunch": "☀️", 
+        "dinner": "🌙",
+        "snack": "🍎"
     }
     
-    # Sort meals into categories
-    for i, meal in enumerate(last_meals):
-        if isinstance(meal, dict):
-            meal_name = meal.get('name') or meal.get('Food Item', f'Meal {i+1}')
-            meal_category = meal.get('Category', meal.get('Meal', 'General'))
-        else:
-            meal_name = str(meal) if str(meal).strip() else f'Meal {i+1}'
-            meal_category = 'General'
-        
-        # Determine category based on meal name or category
-        category_lower = meal_category.lower()
-        if 'breakfast' in category_lower or 'breakfast' in meal_name.lower():
-            meal_categories["Breakfast"].append((meal_name, meal))
-        elif 'lunch' in category_lower or 'lunch' in meal_name.lower():
-            meal_categories["Lunch"].append((meal_name, meal))
-        elif 'dinner' in category_lower or 'dinner' in meal_name.lower():
-            meal_categories["Dinner"].append((meal_name, meal))
-        elif 'snack' in category_lower or 'snack' in meal_name.lower():
-            meal_categories["Snack"].append((meal_name, meal))
-        else:
-            # Default categorization based on position
-            if i == 0:
-                meal_categories["Breakfast"].append((meal_name, meal))
-            elif i == 1:
-                meal_categories["Lunch"].append((meal_name, meal))
-            elif i == 2:
-                meal_categories["Dinner"].append((meal_name, meal))
-            else:
-                meal_categories["Snack"].append((meal_name, meal))
+    emoji = emoji_map.get(current_meal_type, "🍽️")
+    meal_type_display = current_meal_type.title()
     
-    # Store categorized meals in context
-    context.user_data["categorized_meals"] = meal_categories
-    context.user_data["current_meal_type"] = "Breakfast"
+    message = f"📝 **Step {current_step}/{total_steps}: {meal_type_display}**\n\n"
+    message += f"{emoji} **Did you eat {current_meal_type} today?**\n\n"
+    message += "Choose what you ate:"
     
-    # Show breakfast meals first
-    return await show_meal_type_selection(update, context)
+    # Create keyboard with clear options
+    keyboard = [
+        [InlineKeyboardButton(f"✅ Yes, I ate {current_meal_type}", callback_data=f"ate_{current_meal_type}")],
+        [InlineKeyboardButton(f"❌ No, I skipped {current_meal_type}", callback_data=f"skipped_{current_meal_type}")],
+        [InlineKeyboardButton(f"🍽️ I ate something else for {current_meal_type}", callback_data=f"custom_{current_meal_type}")],
+        [InlineKeyboardButton("⬅️ Go Back", callback_data="navigate_back")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if query:
+        await query.edit_message_text(
+            message,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    else:
+        # This shouldn't happen, but handle it gracefully
+        return LOG_MEAL_FOLLOWED
+    
+    return LOG_MEAL_FOLLOWED
 
 async def show_meal_type_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show meals for a specific meal type."""
@@ -3421,6 +3423,164 @@ async def show_meal_type_selection(update: Update, context: ContextTypes.DEFAULT
         return LOG_MEAL_FOLLOWED
     
     return LOG_MEAL_FOLLOWED
+
+async def handle_ate_meal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle when user ate the suggested meal."""
+    query = update.callback_query
+    await query.answer()
+    
+    current_meal_type = context.user_data.get("current_meal_type", "breakfast")
+    meal_log = context.user_data.get("meal_log", {})
+    
+    # Mark as ate
+    meal_log[current_meal_type]["ate"] = True
+    meal_log[current_meal_type]["meal"] = f"Suggested {current_meal_type}"
+    context.user_data["meal_log"] = meal_log
+    
+    # Move to next meal type
+    meal_types = ["breakfast", "lunch", "dinner", "snack"]
+    try:
+        current_index = meal_types.index(current_meal_type)
+        if current_index < len(meal_types) - 1:
+            # Move to next meal type
+            next_meal_type = meal_types[current_index + 1]
+            context.user_data["current_meal_type"] = next_meal_type
+            return await show_individual_meal_selection(update, context)
+        else:
+            # All meal types done, show summary
+            return await show_meal_log_summary(update, context)
+    except ValueError:
+        return await show_meal_log_summary(update, context)
+
+async def handle_skipped_meal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle when user skipped the meal."""
+    query = update.callback_query
+    await query.answer()
+    
+    current_meal_type = context.user_data.get("current_meal_type", "breakfast")
+    meal_log = context.user_data.get("meal_log", {})
+    
+    # Mark as skipped
+    meal_log[current_meal_type]["ate"] = False
+    meal_log[current_meal_type]["meal"] = None
+    context.user_data["meal_log"] = meal_log
+    
+    # Move to next meal type
+    meal_types = ["breakfast", "lunch", "dinner", "snack"]
+    try:
+        current_index = meal_types.index(current_meal_type)
+        if current_index < len(meal_types) - 1:
+            # Move to next meal type
+            next_meal_type = meal_types[current_index + 1]
+            context.user_data["current_meal_type"] = next_meal_type
+            return await show_individual_meal_selection(update, context)
+        else:
+            # All meal types done, show summary
+            return await show_meal_log_summary(update, context)
+    except ValueError:
+        return await show_meal_log_summary(update, context)
+
+async def handle_custom_meal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle when user ate something else."""
+    query = update.callback_query
+    await query.answer()
+    
+    current_meal_type = context.user_data.get("current_meal_type", "breakfast")
+    
+    # Ask user what they ate
+    message = f"🍽️ **What did you eat for {current_meal_type}?**\n\n"
+    message += "Please type what you actually ate:"
+    
+    keyboard = [
+        [InlineKeyboardButton("⬅️ Go Back", callback_data="navigate_back")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        message,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+    
+    # Set state to wait for custom meal input
+    context.user_data["waiting_for_custom_meal"] = current_meal_type
+    return LOG_MEAL_CUSTOM
+
+async def show_meal_log_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show summary of logged meals."""
+    query = update.callback_query
+    await query.answer()
+    
+    meal_log = context.user_data.get("meal_log", {})
+    
+    message = "📝 **Your Meal Log Summary**\n\n"
+    
+    emoji_map = {
+        "breakfast": "🌅",
+        "lunch": "☀️", 
+        "dinner": "🌙",
+        "snack": "🍎"
+    }
+    
+    for meal_type, data in meal_log.items():
+        emoji = emoji_map.get(meal_type, "🍽️")
+        meal_type_display = meal_type.title()
+        
+        if data["ate"]:
+            meal_name = data["meal"] or f"Something for {meal_type}"
+            message += f"{emoji} **{meal_type_display}**: ✅ {meal_name}\n"
+        else:
+            message += f"{emoji} **{meal_type_display}**: ❌ Skipped\n"
+    
+    message += "\n🎯 **Great job logging your meals!**\n"
+    message += "This helps track your nutrition and build healthy habits."
+    
+    keyboard = [
+        [InlineKeyboardButton("🏠 Back to Menu", callback_data="go_back")],
+        [InlineKeyboardButton("📊 View Profile", callback_data="view_profile")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        message,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+    
+    return MEAL_PLAN
+
+async def handle_custom_meal_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle custom meal input from user."""
+    user_id = update.message.from_user.id
+    custom_meal = update.message.text.strip()
+    
+    waiting_for = context.user_data.get("waiting_for_custom_meal", "breakfast")
+    meal_log = context.user_data.get("meal_log", {})
+    
+    # Store the custom meal
+    meal_log[waiting_for]["ate"] = True
+    meal_log[waiting_for]["meal"] = custom_meal
+    context.user_data["meal_log"] = meal_log
+    
+    # Clear waiting state
+    context.user_data.pop("waiting_for_custom_meal", None)
+    
+    # Move to next meal type
+    meal_types = ["breakfast", "lunch", "dinner", "snack"]
+    try:
+        current_index = meal_types.index(waiting_for)
+        if current_index < len(meal_types) - 1:
+            # Move to next meal type
+            next_meal_type = meal_types[current_index + 1]
+            context.user_data["current_meal_type"] = next_meal_type
+            
+            # Show next meal selection
+            return await show_individual_meal_selection(update, context)
+        else:
+            # All meal types done, show summary
+            return await show_meal_log_summary(update, context)
+    except ValueError:
+        return await show_meal_log_summary(update, context)
 
 async def handle_meal_type_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle when user is done with current meal type."""
