@@ -584,6 +584,8 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
             csv_path = Path("maharastra.csv")
             logger.info("No state specified, defaulting to maharashtra.csv")
         
+        logger.info(f"📁 Loading CSV from: {csv_path.absolute()}")
+        
         if not csv_path.exists():
             logger.error(f"CSV file not found: {csv_path}")
             return get_fallback_meal_data(state or "general")
@@ -639,8 +641,9 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
                             break
                         continue
                     
-                    # Apply filters
+                    # Apply filters with debug logging
                     if diet_type and row.get('Diet Type', '').lower() != diet_type.lower():
+                        logger.debug(f"❌ Diet filter: CSV={row.get('Diet Type', '')}, Requested={diet_type}")
                         continue
                     
                     if meal_type:
@@ -659,13 +662,20 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
                         }
                         
                         # Check if the requested meal type matches the CSV meal
+                        meal_passed = False
                         if requested_meal in meal_mapping:
-                            if csv_meal not in meal_mapping[requested_meal]:
-                                continue
+                            if csv_meal in meal_mapping[requested_meal]:
+                                meal_passed = True
+                                logger.debug(f"✅ Meal passed mapping filter: CSV={csv_meal}, Requested={requested_meal}")
                         else:
                             # Direct comparison for other meal types
-                            if csv_meal != requested_meal:
-                                continue
+                            if csv_meal == requested_meal:
+                                meal_passed = True
+                                logger.debug(f"✅ Meal passed direct filter: CSV={csv_meal}, Requested={requested_meal}")
+                        
+                        if not meal_passed:
+                            logger.debug(f"❌ Meal filter: CSV={csv_meal}, Requested={requested_meal}")
+                            continue
                     
                     # Convert CSV row to standard meal format
                     meal = convert_csv_row_to_meal(row)
@@ -1693,6 +1703,8 @@ async def quick_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         }
         csv_diet_type = diet_mapping.get(user_diet, 'Vegetarian')
         
+        logger.info(f"🔍 Diet mapping: user_diet='{user_diet}' -> csv_diet_type='{csv_diet_type}'")
+        
         # Load meals from CSV
         meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, max_meals=50)
         
@@ -1814,14 +1826,31 @@ async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAU
         }
         csv_diet_type = diet_mapping.get(user_diet, 'Vegetarian')
         
+        logger.info(f"🔍 Diet mapping: user_diet='{user_diet}' -> csv_diet_type='{csv_diet_type}'")
+        
         # Clear meal cache to ensure fresh data
         meal_data_cache.clear()
         
-        # Load meals from CSV
+        # Load meals from CSV with debug logging
+        logger.info(f"🔍 Loading meals for state: {user_state}, diet: {csv_diet_type}, meal_type: {meal_type}")
+        
         if meal_type == "full_day":
             meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, max_meals=50)
         else:
             meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, meal_type=meal_type, max_meals=20)
+        
+        logger.info(f"📊 Loaded {len(meals) if meals else 0} meals from CSV")
+        
+        if not meals:
+            logger.warning(f"⚠️ No meals loaded for state: {user_state}, diet: {csv_diet_type}, meal_type: {meal_type}")
+            # Try loading without meal type filter to see if any meals exist
+            all_meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, max_meals=10)
+            logger.warning(f"🔍 Total meals without meal filter: {len(all_meals) if all_meals else 0}")
+            if all_meals:
+                logger.warning(f"🔍 Sample meals without filter: {[m.get('Food Item', 'Unknown') for m in all_meals[:3]]}")
+        else:
+            logger.info(f"✅ Sample meal: {meals[0].get('Food Item', 'No Food Item') if meals else 'No meals'}")
+            logger.info(f"✅ Sample meals: {[m.get('Food Item', 'Unknown') for m in meals[:3]]}")
         
         # Apply medical filtering
         medical_condition = user_data.get('medical', 'None')
