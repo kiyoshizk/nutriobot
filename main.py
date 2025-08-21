@@ -71,7 +71,7 @@ ALLOWED_DIET_TYPES = {
     'keto', 'eggitarian', 'jain', 'mixed', 'paleo', 'mediterranean', 
     'dash', 'low-carb', 'high-protein', 'balanced'
 }
-ALLOWED_MEAL_TYPES = {'breakfast', 'lunch', 'dinner', 'snack', 'morning snack', 'evening snack'}
+ALLOWED_MEAL_TYPES = {'breakfast', 'lunch', 'dinner', 'snack', 'morning snack', 'evening snack', 'day total'}
 MAX_MEALS_PER_REQUEST = 50
 MAX_FILE_SIZE_MB = 10
 
@@ -643,8 +643,29 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
                     if diet_type and row.get('Diet Type', '').lower() != diet_type.lower():
                         continue
                     
-                    if meal_type and row.get('Meal', '').lower() != meal_type.lower():
-                        continue
+                    if meal_type:
+                        csv_meal = row.get('Meal', '').lower()
+                        requested_meal = meal_type.lower()
+                        
+                        # Handle meal type mapping for CSV format
+                        meal_mapping = {
+                            'snack': ['morning snack', 'evening snack'],
+                            'morning snack': ['morning snack'],
+                            'evening snack': ['evening snack'],
+                            'breakfast': ['breakfast'],
+                            'lunch': ['lunch'],
+                            'dinner': ['dinner'],
+                            'day total': ['day total']
+                        }
+                        
+                        # Check if the requested meal type matches the CSV meal
+                        if requested_meal in meal_mapping:
+                            if csv_meal not in meal_mapping[requested_meal]:
+                                continue
+                        else:
+                            # Direct comparison for other meal types
+                            if csv_meal != requested_meal:
+                                continue
                     
                     # Convert CSV row to standard meal format
                     meal = convert_csv_row_to_meal(row)
@@ -687,7 +708,7 @@ def validate_csv_row(row: Dict[str, str]) -> bool:
     """Validate CSV row data for security and data integrity."""
     try:
         # Check required fields - be more flexible with the new CSV structure
-        required_fields = ['Dish Combo']  # Only dish combo is absolutely required
+        required_fields = ['Dish Combo']  # Only dish combo is absolutely required (CSV column name)
         for field in required_fields:
             if not row.get(field) or not row[field].strip():
                 return False
@@ -800,7 +821,7 @@ def convert_csv_row_to_meal(row: Dict[str, str]) -> Optional[Dict[str, Any]]:
         return None
 
 def load_meal_data_from_json(state: str = None) -> List[Dict[str, Any]]:
-    """Load meal data from JSON file for the given state with fallback."""
+    """Load meal data from CSV file for the given state with fallback (legacy function name)."""
     try:
         # Since we've moved to CSV files, redirect all requests to CSV loading
         if state:
@@ -837,37 +858,45 @@ def validate_meal_structure(meal: Dict[str, Any]) -> bool:
     return True
 
 def get_fallback_meal_data(state: str) -> List[Dict[str, Any]]:
-    """Provide fallback meal data when JSON files are unavailable."""
+    """Provide fallback meal data when CSV files are unavailable."""
     logger.info(f"Using fallback meal data for {state}")
     
     fallback_meals = [
         {
-            "Food Item": "Rice and Dal",
+            "Food Item": "Rice and Dal Combo",
             "Ingredients": ["rice", "lentils", "spices", "onion", "tomato"],
             "approx_calories": 250,
             "Health Impact": "Balanced meal with protein and carbs",
-            "Calorie Level": "medium"
+            "Calorie Level": "medium",
+            "Category": "Lunch",
+            "Diet Type": "Vegetarian"
         },
         {
-            "Food Item": "Vegetable Curry",
-            "Ingredients": ["vegetables", "spices", "onion", "tomato", "oil"],
-            "approx_calories": 180,
+            "Food Item": "Vegetable Curry with Chapati",
+            "Ingredients": ["vegetables", "spices", "onion", "tomato", "oil", "wheat flour"],
+            "approx_calories": 300,
             "Health Impact": "High in fiber and vitamins",
-            "Calorie Level": "low"
+            "Calorie Level": "medium",
+            "Category": "Dinner",
+            "Diet Type": "Vegetarian"
         },
         {
-            "Food Item": "Chapati",
-            "Ingredients": ["wheat flour", "water", "salt"],
-            "approx_calories": 120,
-            "Health Impact": "Whole grain bread, good source of fiber",
-            "Calorie Level": "low"
+            "Food Item": "Poha with Chutney",
+            "Ingredients": ["flattened rice", "onion", "tomato", "spices", "oil", "coconut"],
+            "approx_calories": 200,
+            "Health Impact": "Light and nutritious breakfast",
+            "Calorie Level": "low",
+            "Category": "Breakfast",
+            "Diet Type": "Vegetarian"
         },
         {
             "Food Item": "Mixed Vegetable Salad",
             "Ingredients": ["cucumber", "tomato", "onion", "lemon", "salt"],
             "approx_calories": 80,
             "Health Impact": "Low calorie, high in vitamins",
-            "Calorie Level": "low"
+            "Calorie Level": "low",
+            "Category": "Evening Snack",
+            "Diet Type": "Vegetarian"
         }
     ]
     
@@ -1946,7 +1975,7 @@ def generate_full_day_meal_plan(meals, user_data, streak_data, points_earned):
     
     for i, meal in enumerate(selected_meals):
         meal_type = meal_types[i] if i < len(meal_types) else "Meal"
-        meal_name = meal.get('Dish Combo', meal.get('Food Item', 'Unknown'))
+        meal_name = meal.get('Food Item', meal.get('Dish Combo', 'Unknown'))
         calories = meal.get('approx_calories', 200)
         health_impact = meal.get('Health Impact', '')
         ingredients = meal.get('Ingredients', [])

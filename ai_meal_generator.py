@@ -27,7 +27,7 @@ ALLOWED_DIET_TYPES = {
     'keto', 'eggitarian', 'jain', 'mixed', 'paleo', 'mediterranean', 
     'dash', 'low-carb', 'high-protein', 'balanced'
 }
-ALLOWED_MEAL_TYPES = {'breakfast', 'lunch', 'dinner', 'snack', 'morning snack', 'evening snack'}
+ALLOWED_MEAL_TYPES = {'breakfast', 'lunch', 'dinner', 'snack', 'morning snack', 'evening snack', 'day total'}
 MAX_MEALS_PER_REQUEST = 50
 MAX_CACHE_SIZE = 1000
 
@@ -280,14 +280,14 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
         return get_fallback_meal_data()
 
 def load_meal_data_from_json(state: str) -> List[Dict[str, Any]]:
-    """Load meal data from JSON files - static version."""
+    """Load meal data from CSV files - static version (legacy function name)."""
     try:
         # Since we've moved to CSV files, redirect all requests to CSV loading
         logger.info(f"Redirecting {state} request to CSV-based loading")
         return load_meal_data_from_csv(state=state)
         
     except Exception as e:
-        logger.error(f"Error loading JSON data for {state}: {e}")
+        logger.error(f"Error loading CSV data for {state}: {e}")
         return []
 
 def format_meal_plan(meals: List[Dict[str, Any]], user_name: str, age: int, diet: str, state: str, user_id: int = 0) -> str:
