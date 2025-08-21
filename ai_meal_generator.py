@@ -263,28 +263,18 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
                     csv_meal = row.get('Meal', '').lower()
                     requested_meal = meal_type.lower()
                     
-                    # Handle meal type mapping for CSV format
-                    meal_mapping = {
-                        'snack': ['morning snack', 'evening snack'],
-                        'morning snack': ['morning snack'],
-                        'evening snack': ['evening snack'],
-                        'breakfast': ['breakfast'],
-                        'lunch': ['lunch'],
-                        'dinner': ['dinner'],
-                        'day total': ['day total']
-                    }
-                    
-                    # Check if the requested meal type matches the CSV meal
+                    # Simplified meal type matching
                     meal_passed = False
-                    if requested_meal in meal_mapping:
-                        if csv_meal in meal_mapping[requested_meal]:
+                    
+                    # Handle snack variations
+                    if requested_meal == 'snack':
+                        if csv_meal in ['morning snack', 'evening snack']:
                             meal_passed = True
-                            logger.debug(f"✅ [AI] Meal passed mapping filter: CSV={csv_meal}, Requested={requested_meal}")
-                    else:
-                        # Direct comparison for other meal types
-                        if csv_meal == requested_meal:
-                            meal_passed = True
-                            logger.debug(f"✅ [AI] Meal passed direct filter: CSV={csv_meal}, Requested={requested_meal}")
+                            logger.debug(f"✅ [AI] Snack match: CSV={csv_meal}, Requested={requested_meal}")
+                    # Handle specific meal types
+                    elif requested_meal == csv_meal:
+                        meal_passed = True
+                        logger.debug(f"✅ [AI] Direct match: CSV={csv_meal}, Requested={requested_meal}")
                     
                     if not meal_passed:
                         logger.debug(f"❌ [AI] Meal filter: CSV={csv_meal}, Requested={requested_meal}")

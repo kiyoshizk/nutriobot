@@ -650,28 +650,18 @@ def load_meal_data_from_csv(state: str = None, diet_type: str = None, meal_type:
                         csv_meal = row.get('Meal', '').lower()
                         requested_meal = meal_type.lower()
                         
-                        # Handle meal type mapping for CSV format
-                        meal_mapping = {
-                            'snack': ['morning snack', 'evening snack'],
-                            'morning snack': ['morning snack'],
-                            'evening snack': ['evening snack'],
-                            'breakfast': ['breakfast'],
-                            'lunch': ['lunch'],
-                            'dinner': ['dinner'],
-                            'day total': ['day total']
-                        }
-                        
-                        # Check if the requested meal type matches the CSV meal
+                        # Simplified meal type matching
                         meal_passed = False
-                        if requested_meal in meal_mapping:
-                            if csv_meal in meal_mapping[requested_meal]:
+                        
+                        # Handle snack variations
+                        if requested_meal == 'snack':
+                            if csv_meal in ['morning snack', 'evening snack']:
                                 meal_passed = True
-                                logger.debug(f"✅ Meal passed mapping filter: CSV={csv_meal}, Requested={requested_meal}")
-                        else:
-                            # Direct comparison for other meal types
-                            if csv_meal == requested_meal:
-                                meal_passed = True
-                                logger.debug(f"✅ Meal passed direct filter: CSV={csv_meal}, Requested={requested_meal}")
+                                logger.debug(f"✅ Snack match: CSV={csv_meal}, Requested={requested_meal}")
+                        # Handle specific meal types
+                        elif requested_meal == csv_meal:
+                            meal_passed = True
+                            logger.debug(f"✅ Direct match: CSV={csv_meal}, Requested={requested_meal}")
                         
                         if not meal_passed:
                             logger.debug(f"❌ Meal filter: CSV={csv_meal}, Requested={requested_meal}")
@@ -1848,6 +1838,12 @@ async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAU
             logger.warning(f"🔍 Total meals without meal filter: {len(all_meals) if all_meals else 0}")
             if all_meals:
                 logger.warning(f"🔍 Sample meals without filter: {[m.get('Food Item', 'Unknown') for m in all_meals[:3]]}")
+                # Test specific meal type filtering
+                if meal_type == 'snack':
+                    snack_meals = [m for m in all_meals if m.get('Category', '').lower() in ['morning snack', 'evening snack']]
+                    logger.warning(f"🔍 Snack meals found: {len(snack_meals)}")
+                    if snack_meals:
+                        logger.warning(f"🔍 Sample snack meals: {[m.get('Food Item', 'Unknown') for m in snack_meals[:3]]}")
         else:
             logger.info(f"✅ Sample meal: {meals[0].get('Food Item', 'No Food Item') if meals else 'No meals'}")
             logger.info(f"✅ Sample meals: {[m.get('Food Item', 'Unknown') for m in meals[:3]]}")
