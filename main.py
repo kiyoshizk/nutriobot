@@ -1785,6 +1785,9 @@ async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAU
         }
         csv_diet_type = diet_mapping.get(user_diet, 'Vegetarian')
         
+        # Clear meal cache to ensure fresh data
+        meal_data_cache.clear()
+        
         # Load meals from CSV
         if meal_type == "full_day":
             meals = load_meal_data_from_csv(state=user_state, diet_type=csv_diet_type, max_meals=50)
@@ -1813,6 +1816,9 @@ async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAU
         else:
             # Select one meal for single meal type
             selected_meal = random.choice(meals) if meals else None
+            # Debug: Log the selected meal structure
+            if selected_meal:
+                logger.info(f"Selected meal for {meal_type}: {selected_meal.get('Food Item', 'No Food Item')} | {selected_meal.get('Dish Combo', 'No Dish Combo')}")
             meal_plan = generate_single_meal_plan(meals, user_data, meal_type, streak_data, 0)
         
         # Add to navigation stack
@@ -1987,7 +1993,7 @@ def generate_single_meal_plan(meals, user_data, meal_type, streak_data, points_e
     meal_message += "─" * 40 + "\n\n"
     
     # Get meal details
-    meal_name = selected_meal.get('Dish Combo', selected_meal.get('Food Item', 'Complete Meal'))
+    meal_name = selected_meal.get('Food Item', selected_meal.get('Dish Combo', 'Complete Meal'))
     calories = selected_meal.get('approx_calories', 200)
     health_impact = selected_meal.get('Health Impact', '')
     ingredients = selected_meal.get('Ingredients', [])
