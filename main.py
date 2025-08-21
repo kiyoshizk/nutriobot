@@ -1806,10 +1806,13 @@ async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAU
             )
             return ConversationHandler.END
         
-        # Generate meal plan
+        # Generate meal plan and get selected meal
+        selected_meal = None
         if meal_type == "full_day":
             meal_plan = generate_full_day_meal_plan(meals, user_data, streak_data, 0)
         else:
+            # Select one meal for single meal type
+            selected_meal = random.choice(meals) if meals else None
             meal_plan = generate_single_meal_plan(meals, user_data, meal_type, streak_data, 0)
         
         # Add to navigation stack
@@ -1833,8 +1836,12 @@ async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAU
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Cache the suggested meals for logging
-        meal_names = [{'name': f"{meal_type.replace('_', ' ').title()} Plan"}]
+        # Cache the suggested meals for logging and grocery list
+        if meal_type == "full_day":
+            meal_names = [{'name': f"{meal_type.replace('_', ' ').title()} Plan"}]
+        else:
+            # Cache the actual selected meal for grocery list generation
+            meal_names = [selected_meal] if selected_meal else [{'name': f"{meal_type.replace('_', ' ').title()} Plan"}]
         context.user_data["last_suggested_meals"] = meal_names
         
         await query.edit_message_text(
@@ -1958,12 +1965,12 @@ def generate_full_day_meal_plan(meals, user_data, streak_data, points_earned):
     return meal_message
 
 def generate_single_meal_plan(meals, user_data, meal_type, streak_data, points_earned):
-    """Generate a single meal type plan."""
-    # Select 2-3 meals for the specific type
-    selected_meals = random.sample(meals, min(3, len(meals)))
+    """Generate a single meal type plan with complete meal combo."""
+    # Select 1 complete meal combo for the specific type
+    selected_meal = random.choice(meals) if meals else None
     
-    # Calculate total calories
-    total_calories = sum(meal.get('approx_calories', 200) for meal in selected_meals)
+    if not selected_meal:
+        return "❌ No meal data available for this type."
     
     # Format meal plan message
     meal_type_display = meal_type.replace('_', ' ').title()
@@ -1979,28 +1986,27 @@ def generate_single_meal_plan(meals, user_data, meal_type, streak_data, points_e
     meal_message += "\n\n"
     meal_message += "─" * 40 + "\n\n"
     
-    for i, meal in enumerate(selected_meals, 1):
-        meal_name = meal.get('Dish Combo', meal.get('Food Item', 'Unknown'))
-        calories = meal.get('approx_calories', 200)
-        health_impact = meal.get('Health Impact', '')
-        ingredients = meal.get('Ingredients', [])
-        calorie_level = meal.get('Calorie Level', '')
-        
-        meal_message += f"**Option {i}**\n"
-        meal_message += f"🍽️ {meal_name}\n"
-        meal_message += f"🔥 Calories: {calories}\n"
-        if calorie_level:
-            meal_message += f"📊 Level: {calorie_level.title()}\n"
-        if ingredients:
-            ingredients_text = ", ".join(ingredients)
-            meal_message += f"🥘 Ingredients: {ingredients_text}\n"
-        if health_impact:
-            meal_message += f"💚 Health: {health_impact}\n"
-        meal_message += "\n"
+    # Get meal details
+    meal_name = selected_meal.get('Dish Combo', selected_meal.get('Food Item', 'Complete Meal'))
+    calories = selected_meal.get('approx_calories', 200)
+    health_impact = selected_meal.get('Health Impact', '')
+    ingredients = selected_meal.get('Ingredients', [])
+    calorie_level = selected_meal.get('Calorie Level', '')
     
-    meal_message += "─" * 40 + "\n"
-    meal_message += f"🔥 **Total Calories:** {total_calories}\n\n"
-    meal_message += f"✨ {meal_type_display} options personalized for your health needs"
+    meal_message += f"**🍽️ Your {meal_type_display} Combo**\n\n"
+    meal_message += f"🍽️ **{meal_name}**\n"
+    meal_message += f"🔥 **Calories:** {calories}\n"
+    if calorie_level:
+        meal_message += f"📊 **Level:** {calorie_level.title()}\n"
+    if ingredients:
+        ingredients_text = ", ".join(ingredients)
+        meal_message += f"🥘 **Ingredients:** {ingredients_text}\n"
+    if health_impact:
+        meal_message += f"💚 **Health Impact:** {health_impact}\n"
+    
+    meal_message += "\n" + "─" * 40 + "\n"
+    meal_message += f"✨ **Complete {meal_type_display} combo** personalized for your health needs\n"
+    meal_message += f"🎯 **Perfect for:** {meal_type_display} time with balanced nutrition"
     
     return meal_message
 
@@ -2221,20 +2227,37 @@ async def show_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if len(filtered_meals) < 4:
         filtered_meals = meals[:4]
     
-    # Extract ingredients from selected meals - ONLY from meal data
+    # First try to get ingredients from last suggested meals (from meal plan)
+    last_meals = context.user_data.get("last_suggested_meals", [])
     all_ingredients = set()
-    for meal in filtered_meals[:8]:  # Take first 8 meals for more variety
-        ingredients = meal.get('Ingredients', [])
-        if isinstance(ingredients, list):
-            # Clean and validate each ingredient
-            for ingredient in ingredients:
-                if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
-                    # Clean ingredient name
-                    clean_ingredient = ingredient.strip()
-                    # Remove common measurement units and quantities
-                    clean_ingredient = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg|\d+%', '', clean_ingredient).strip()
-                    if clean_ingredient and len(clean_ingredient) > 1:
-                        all_ingredients.add(clean_ingredient)
+    
+    if last_meals:
+        # Extract ingredients from last suggested meals
+        for meal in last_meals:
+            if isinstance(meal, dict) and 'Ingredients' in meal:
+                ingredients = meal.get('Ingredients', [])
+                if isinstance(ingredients, list):
+                    for ingredient in ingredients:
+                        if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
+                            clean_ingredient = ingredient.strip()
+                            clean_ingredient = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg|\d+%', '', clean_ingredient).strip()
+                            if clean_ingredient and len(clean_ingredient) > 1:
+                                all_ingredients.add(clean_ingredient)
+    
+    # If no ingredients from last meals, use filtered meals from CSV
+    if not all_ingredients:
+        for meal in filtered_meals[:8]:  # Take first 8 meals for more variety
+            ingredients = meal.get('Ingredients', [])
+            if isinstance(ingredients, list):
+                # Clean and validate each ingredient
+                for ingredient in ingredients:
+                    if ingredient and isinstance(ingredient, str) and len(ingredient.strip()) > 0:
+                        # Clean ingredient name
+                        clean_ingredient = ingredient.strip()
+                        # Remove common measurement units and quantities
+                        clean_ingredient = re.sub(r'\d+g|\d+ml|\d+kg|\d+mg|\d+%', '', clean_ingredient).strip()
+                        if clean_ingredient and len(clean_ingredient) > 1:
+                            all_ingredients.add(clean_ingredient)
     
     # Convert to list and sort
     ingredients_list = sorted(list(all_ingredients))
@@ -2682,7 +2705,7 @@ async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Create order buttons
     keyboard = [
         [InlineKeyboardButton("🛒 Order from Blinkit", url="https://www.blinkit.com")],
-        [InlineKeyboardButton("🛍 Order from Zepto", url="https://www.zepto.in")],
+        [InlineKeyboardButton("🛍 Order from Zepto", url="https://www.zeptonow.com/")],
         [InlineKeyboardButton("🛒 Back to Shopping List", callback_data="grocery_list")],
         [InlineKeyboardButton("⬅️ Back", callback_data="navigate_back")]
     ]
