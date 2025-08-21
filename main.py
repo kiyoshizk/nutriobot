@@ -86,6 +86,9 @@ user_cart_cache: Dict[int, set] = {}
 user_streaks_cache: Dict[int, Dict[str, Any]] = {}
 meal_data_cache: Dict[str, List[Dict[str, Any]]] = {}
 
+# Navigation stack for proper back navigation
+user_navigation_stack: Dict[int, List[Dict[str, Any]]] = {}
+
 # Rate limiting data
 user_rate_limits: Dict[int, Dict[str, Any]] = {}
 RATE_LIMIT_WINDOW = 60  # 1 minute
@@ -215,6 +218,48 @@ def cleanup_cache(cache: Dict, max_size: int = MAX_CACHE_SIZE):
             logger.warning("Cache cleared due to cleanup error")
         except Exception as clear_error:
             logger.error(f"Failed to clear cache: {clear_error}")
+
+# Navigation helper functions
+def add_to_navigation_stack(user_id: int, current_state: str, context_data: Dict[str, Any] = None):
+    """Add current state to user's navigation stack."""
+    if user_id not in user_navigation_stack:
+        user_navigation_stack[user_id] = []
+    
+    navigation_entry = {
+        'state': current_state,
+        'timestamp': datetime.now(),
+        'context_data': context_data or {}
+    }
+    
+    user_navigation_stack[user_id].append(navigation_entry)
+    
+    # Keep only last 10 navigation entries
+    if len(user_navigation_stack[user_id]) > 10:
+        user_navigation_stack[user_id] = user_navigation_stack[user_id][-10:]
+    
+    cleanup_cache(user_navigation_stack)
+
+def get_previous_navigation(user_id: int) -> Optional[Dict[str, Any]]:
+    """Get the previous navigation entry for the user."""
+    if user_id not in user_navigation_stack or len(user_navigation_stack[user_id]) < 2:
+        return None
+    
+    # Remove current state and return previous
+    user_navigation_stack[user_id].pop()  # Remove current
+    previous = user_navigation_stack[user_id][-1] if user_navigation_stack[user_id] else None
+    return previous
+
+def clear_navigation_stack(user_id: int):
+    """Clear user's navigation stack."""
+    if user_id in user_navigation_stack:
+        user_navigation_stack[user_id].clear()
+
+def get_navigation_path(user_id: int) -> List[str]:
+    """Get the current navigation path for the user."""
+    if user_id not in user_navigation_stack:
+        return []
+    
+    return [entry['state'] for entry in user_navigation_stack[user_id]]
 
 # Firebase helper functions with proper error handling
 async def save_user_profile(user_id: int, profile_data: Dict[str, Any]) -> bool:
@@ -962,6 +1007,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         
     user_id = update.effective_user.id
     
+    # Clear navigation stack for new session
+    clear_navigation_stack(user_id)
+    
     # Check if user already has a profile
     existing_profile = await get_user_profile(user_id)
     if existing_profile:
@@ -979,6 +1027,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         
         # Get streak data for welcome message
         streak_data = await get_user_streak(user_id)
+        
+        # Add to navigation stack
+        add_to_navigation_stack(user_id, "main_menu", {"profile": existing_profile})
         
         await update.message.reply_text(
             f"🍎 Yo! Welcome back to Nutrio! 👋\n\n"
@@ -1533,6 +1584,9 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # Store user data in context for later use
     context.user_data['meal_plan_user_data'] = user_data
     
+    # Add to navigation stack
+    add_to_navigation_stack(user_id, "meal_plan_selection", {"user_data": user_data})
+    
     # Simplified meal plan options
     keyboard = [
         [InlineKeyboardButton("🍽️ Daily Meal Plan", callback_data="quick_meal_plan")],
@@ -1540,7 +1594,7 @@ async def get_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         [InlineKeyboardButton("☀️ Lunch", callback_data="meal_plan_type_lunch")],
         [InlineKeyboardButton("🌙 Dinner", callback_data="meal_plan_type_dinner")],
         [InlineKeyboardButton("🍎 Snack", callback_data="meal_plan_type_snack")],
-        [InlineKeyboardButton("⬅️ Back to Menu", callback_data="go_back")]
+        [InlineKeyboardButton("⬅️ Back", callback_data="navigate_back")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -1631,6 +1685,9 @@ async def quick_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Generate full day meal plan
         meal_plan = generate_full_day_meal_plan(meals, user_data, streak_data, 0)
         
+        # Add to navigation stack
+        add_to_navigation_stack(user_id, "daily_meal_plan", {"meal_plan": meal_plan})
+        
         # Create action buttons
         keyboard = [
             [
@@ -1644,7 +1701,7 @@ async def quick_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             ],
             [
                 InlineKeyboardButton("🔄 New Plan", callback_data="get_meal_plan"),
-                InlineKeyboardButton("⬅️ Back", callback_data="go_back")
+                InlineKeyboardButton("⬅️ Back", callback_data="navigate_back")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1755,6 +1812,9 @@ async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAU
         else:
             meal_plan = generate_single_meal_plan(meals, user_data, meal_type, streak_data, 0)
         
+        # Add to navigation stack
+        add_to_navigation_stack(user_id, f"{meal_type}_meal_plan", {"meal_plan": meal_plan, "meal_type": meal_type})
+        
         # Create action buttons
         keyboard = [
             [
@@ -1768,7 +1828,7 @@ async def generate_meal_plan_by_type(update: Update, context: ContextTypes.DEFAU
             ],
             [
                 InlineKeyboardButton("🔄 New Plan", callback_data="get_meal_plan"),
-                InlineKeyboardButton("⬅️ Back", callback_data="go_back")
+                InlineKeyboardButton("⬅️ Back", callback_data="navigate_back")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2220,11 +2280,14 @@ async def show_grocery_list(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             # Item is not in cart - show "Add to Cart" button
             keyboard.append([InlineKeyboardButton(f"➕ Add {ingredient}", callback_data=f"cart_toggle_{ingredient}")])
     
+    # Add to navigation stack
+    add_to_navigation_stack(user_id, "grocery_list", {"user_data": user_data})
+    
     # Add cart summary and action buttons
     cart_count = len(user_cart)
     keyboard.append([InlineKeyboardButton(f"🛍 Show Cart ({cart_count} items)", callback_data="show_cart")])
     keyboard.append([InlineKeyboardButton("👤 View Profile", callback_data="view_profile")])
-    keyboard.append([InlineKeyboardButton("⬅️ Back to Meal Plan", callback_data="get_meal_plan")])
+    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="navigate_back")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -2613,12 +2676,15 @@ async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     cart_message += f"\n*Total items: {len(user_cart)}*\n\n"
     cart_message += "*Ready to order? Choose your delivery service below!*"
     
+    # Add to navigation stack
+    add_to_navigation_stack(user_id, "show_cart", {"user_data": user_data})
+    
     # Create order buttons
     keyboard = [
         [InlineKeyboardButton("🛒 Order from Blinkit", url="https://www.blinkit.com")],
         [InlineKeyboardButton("🛍 Order from Zepto", url="https://www.zepto.in")],
         [InlineKeyboardButton("🛒 Back to Shopping List", callback_data="grocery_list")],
-        [InlineKeyboardButton("⬅️ Back to Meal Plan", callback_data="get_meal_plan")]
+        [InlineKeyboardButton("⬅️ Back", callback_data="navigate_back")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -2854,12 +2920,72 @@ async def show_streak_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     return PROFILE
 
+async def navigate_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Navigate back to the previous state in the user's navigation stack."""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    # Get previous navigation entry
+    previous_nav = get_previous_navigation(user_id)
+    
+    if not previous_nav:
+        # No previous state, go to main menu
+        return await go_back(update, context)
+    
+    previous_state = previous_nav['state']
+    context_data = previous_nav.get('context_data', {})
+    
+    logger.info(f"Navigating back to: {previous_state} for user {user_id}")
+    
+    # Handle different previous states
+    if previous_state == "main_menu":
+        return await go_back(update, context)
+    elif previous_state == "meal_plan_selection":
+        # Go back to meal plan selection
+        user_data = context_data.get('user_data')
+        if user_data:
+            context.user_data['meal_plan_user_data'] = user_data
+            keyboard = [
+                [InlineKeyboardButton("🍽️ Daily Meal Plan", callback_data="quick_meal_plan")],
+                [InlineKeyboardButton("🌅 Breakfast", callback_data="meal_plan_type_breakfast")],
+                [InlineKeyboardButton("☀️ Lunch", callback_data="meal_plan_type_lunch")],
+                [InlineKeyboardButton("🌙 Dinner", callback_data="meal_plan_type_dinner")],
+                [InlineKeyboardButton("🍎 Snack", callback_data="meal_plan_type_snack")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="navigate_back")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"🍽️ **Choose Your Meal Plan**\n\n"
+                f"Hey {user_data.get('name', 'there')}! What would you like?\n\n"
+                f"**🍽️ Daily Meal Plan** - Complete day with all meals\n"
+                f"**🌅 Breakfast** - Morning meal suggestions\n"
+                f"**☀️ Lunch** - Afternoon meal suggestions\n"
+                f"**🌙 Dinner** - Evening meal suggestions\n"
+                f"**🍎 Snack** - Light meal suggestions\n\n"
+                f"Select your preference:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            return MEAL_PLAN
+    elif previous_state == "log_meal_start":
+        # Go back to main menu since log meal is a separate flow
+        return await go_back(update, context)
+    else:
+        # Default fallback to main menu
+        return await go_back(update, context)
+
 async def go_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Go back to the main menu."""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
+    
+    # Clear navigation stack and add main menu
+    clear_navigation_stack(user_id)
     
     # Get user profile
     user_data = user_data_cache.get(user_id)
@@ -2881,6 +3007,9 @@ async def go_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         
         # Get streak data for welcome message
         streak_data = await get_user_streak(user_id)
+        
+        # Add main menu to navigation stack
+        add_to_navigation_stack(user_id, "main_menu", {"profile": user_data})
         
         await query.edit_message_text(
             f"🍎 Yo! Welcome back to Nutrio! 👋\n\n"
@@ -2963,6 +3092,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return await handle_meal_type_selection(update, context)
     elif query.data == "log_meal":
         return await log_meal_command(update, context)
+    elif query.data == "navigate_back":
+        return await navigate_back(update, context)
     elif query.data.startswith("follow_meal_") or query.data == "log_followed_done":
         return await handle_log_meal_followed(update, context)
     elif query.data == "meal_type_done":
@@ -3083,6 +3214,9 @@ async def log_meal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 ]])
             )
         return ConversationHandler.END
+    
+    # Add to navigation stack
+    add_to_navigation_stack(user_id, "log_meal_start", {"last_meals": last_meals})
     
     # Initialize meal log in context
     context.user_data["meal_log"] = {
